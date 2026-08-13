@@ -1,19 +1,23 @@
 // Package cli wires the command-line interface together and bootstraps the
 // platform-go observability suite that the rest of the application builds on.
 //
-// The CLI is the template's single entrypoint: whether you are building a
-// one-off tool, a long-running worker, or an HTTP service, you start here and
-// hang new subcommands off the root command.
+// The CLI is tarp's single entrypoint: `analyze` reports the functions in a
+// package that carry no direct unit test, and new subcommands hang off the root
+// command alongside it.
 package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/primandproper/template-go/internal/config"
+	"github.com/primandproper/tarpaulin/internal/config"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 
@@ -38,15 +42,38 @@ type application struct {
 
 // Execute builds the root command, runs it, and tears down the observability
 // suite afterwards so buffered telemetry is flushed even when a command fails.
+//
+// Errors are printed here rather than by cobra so that --fail-on-found can exit
+// non-zero without also printing an error: the report it just wrote is the
+// message, and CI does not need "Error:" stapled underneath it.
 func Execute(ctx context.Context) error {
 	app := &application{}
 
 	rootCmd := app.newRootCommand()
 	err := rootCmd.ExecuteContext(ctx)
 
+	if reportErr := reportExecutionError(rootCmd.ErrOrStderr(), err); err == nil {
+		err = reportErr
+	}
+
 	app.shutdown(ctx)
 
 	return err
+}
+
+// reportExecutionError prints a failed command's error, except the one that
+// only means "the report you just read found something". It returns the failure
+// to write, if writing to stderr is itself broken.
+func reportExecutionError(w io.Writer, err error) error {
+	if err == nil || errors.Is(err, errFunctionsFound) {
+		return nil
+	}
+
+	if _, writeErr := fmt.Fprintln(w, "Error:", err); writeErr != nil {
+		return platformerrors.Wrap(writeErr, "reporting the command's failure to stderr")
+	}
+
+	return nil
 }
 
 // newRootCommand constructs the cobra root command and registers subcommands.
@@ -58,24 +85,29 @@ func (a *application) newRootCommand() *cobra.Command {
 	)
 
 	rootCmd := &cobra.Command{
-		Use:          config.DefaultServiceName,
-		Short:        "A Go application template built on primandproper/platform-go.",
-		SilenceUsage: true,
+		Use:   config.DefaultServiceName,
+		Short: "Find Go functions that have no direct unit test.",
+		Long: "tarp finds functions which lack direct unit tests.\n\n" +
+			"`go test -cover` measures statement coverage, which cannot distinguish a function\n" +
+			"that was tested from one that was merely executed by somebody else's test. tarp\n" +
+			"asks the stricter question, and grades the package on the answer.",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			return a.bootstrap(cmd.Context(), config.Options{ServiceName: serviceName, LogLevel: logLevel}, configPath)
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			a.log().Info("no subcommand provided; run `template-go help` to see what's available")
+			a.log().Info("no subcommand provided; run `tarp help` to see what's available")
 
 			return cmd.Help()
 		},
 	}
 
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", envOr("TEMPLATE_GO_LOG_LEVEL", config.LevelInfo), "log level: debug, info, warn, or error")
-	rootCmd.PersistentFlags().StringVar(&serviceName, "service-name", envOr("TEMPLATE_GO_SERVICE_NAME", config.DefaultServiceName), "service name reported in telemetry")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", envOr("TARP_LOG_LEVEL", config.LevelInfo), "log level: debug, info, warn, or error")
+	rootCmd.PersistentFlags().StringVar(&serviceName, "service-name", envOr("TARP_SERVICE_NAME", config.DefaultServiceName), "service name reported in telemetry")
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", envOr(ConfigFilePathEnvVar, ""), "path to a JSON config file; when set, it is loaded in place of the flag/env defaults")
 
-	rootCmd.AddCommand(a.newVersionCommand())
+	rootCmd.AddCommand(a.newAnalyzeCommand(), a.newVersionCommand())
 
 	return rootCmd
 }

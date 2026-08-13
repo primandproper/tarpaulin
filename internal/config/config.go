@@ -22,11 +22,11 @@ package config
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 
 	platformconfig "github.com/primandproper/platform-go/v10/config"
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 	"github.com/primandproper/platform-go/v10/observability"
 	"github.com/primandproper/platform-go/v10/observability/logging"
 	loggingcfg "github.com/primandproper/platform-go/v10/observability/logging/config"
@@ -37,13 +37,13 @@ import (
 
 // DefaultServiceName is the service name reported by the observability suite
 // when the caller does not supply one.
-const DefaultServiceName = "template-go"
+const DefaultServiceName = "tarp"
 
 // EnvVarPrefix is prepended to every environment variable this application
 // reads, keeping its configuration in a distinct namespace. For example the
-// logging level is read from TEMPLATE_GO_OBSERVABILITY_LOGGING_LEVEL: the prefix
+// logging level is read from TARP_OBSERVABILITY_LOGGING_LEVEL: the prefix
 // here, then the nested envPrefix tags on Config and the platform sub-configs.
-const EnvVarPrefix = "TEMPLATE_GO_"
+const EnvVarPrefix = "TARP_"
 
 // Log level names accepted by Options.LogLevel (case-insensitive).
 const (
@@ -116,7 +116,7 @@ func envVarOptions() []platformconfig.Option {
 
 // Load builds a Config from the given options and then overlays environment
 // variables on top of it. The options (typically the CLI's flags) seed the
-// defaults; any TEMPLATE_GO_-prefixed environment variable that is set wins over
+// defaults; any TARP_-prefixed environment variable that is set wins over
 // them. Fields left unset in the environment keep their default value, so the
 // binary still boots with structured slog logging and noop telemetry out of the
 // box. The result is validated before it is returned.
@@ -124,18 +124,18 @@ func Load(ctx context.Context, opts Options) (*Config, error) {
 	cfg := New(opts)
 
 	if err := platformconfig.ApplyEnvironmentVariables(cfg, envVarOptions()...); err != nil {
-		return nil, fmt.Errorf("applying environment variables: %w", err)
+		return nil, platformerrors.Wrap(err, "applying environment variables")
 	}
 
 	if err := cfg.Validate(ctx); err != nil {
-		return nil, fmt.Errorf("validating configuration: %w", err)
+		return nil, platformerrors.Wrap(err, "validating configuration")
 	}
 
 	return cfg, nil
 }
 
 // LoadFromFile decodes a complete JSON configuration file and then overlays
-// environment variables (a set TEMPLATE_GO_ variable wins over the file value).
+// environment variables (a set TARP_ variable wins over the file value).
 // Unlike Load, it does not start from the built-in defaults: the file is
 // expected to fully specify the config, so use it once a deployment has a real
 // config file to mount. The result is validated before it is returned. Note
@@ -146,11 +146,11 @@ func Load(ctx context.Context, opts Options) (*Config, error) {
 func LoadFromFile(ctx context.Context, path string) (*Config, error) {
 	cfg, err := platformconfig.LoadFromJSONFile[Config](ctx, path, envVarOptions()...)
 	if err != nil {
-		return nil, fmt.Errorf("loading configuration file: %w", err)
+		return nil, platformerrors.Wrap(err, "loading configuration file")
 	}
 
 	if err = cfg.Validate(ctx); err != nil {
-		return nil, fmt.Errorf("validating configuration: %w", err)
+		return nil, platformerrors.Wrap(err, "validating configuration")
 	}
 
 	return cfg, nil

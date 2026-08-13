@@ -1,4 +1,4 @@
-module github.com/primandproper/template-go
+module github.com/primandproper/tarpaulin
 
 go 1.26
 
@@ -6,6 +6,7 @@ require (
 	github.com/primandproper/platform-go/v10 v10.0.0
 	github.com/shoenig/test v1.13.2
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/tools v0.48.0
 )
 
 require (
@@ -99,7 +100,6 @@ require (
 	golang.org/x/telemetry v0.0.0-20260708182218-49f421fb7959 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/api v0.287.1 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260720211330-0afa2a65878a // indirect

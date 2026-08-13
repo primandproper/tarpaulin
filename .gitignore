@@ -17,6 +17,12 @@ coverage.*
 *.coverprofile
 profile.cov
 
+# ...except the coverage renderer itself and the profile its tests are pinned to.
+# A tool that reads cover profiles has both as source, and the patterns above
+# would otherwise drop them silently.
+!internal/coverage/coverage.go
+!internal/coverage/testdata/*.out
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -43,15 +44,37 @@ func TestAnalyze(t *testing.T) {
 		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
 		must.NoError(t, err)
 
+		mainGo, err := filepath.Abs(filepath.Join(corpusDir, "simple", "main.go"))
+		must.NoError(t, err)
+
 		test.Eq(t, 4, report.Declared())
 		test.Eq(t, 3, report.Tested())
 		test.Eq(t, 75, report.Score())
 		test.Eq(t, []analysis.Function{{
 			Package: "simple",
 			File:    "main.go",
+			Path:    mainGo,
 			Name:    "B",
 			Line:    7,
+			EndLine: 7,
 		}}, report.Untested())
+	})
+
+	t.Run("records where each declaration ends", func(t *testing.T) {
+		t.Parallel()
+
+		// The line range is what lets a consumer holding a line number — a
+		// coverage block — ask which function it fell inside.
+		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
+		must.NoError(t, err)
+
+		spans := make(map[string][2]int, report.Declared())
+		for _, fn := range report.Functions {
+			spans[fn.Name] = [2]int{fn.Line, fn.EndLine}
+		}
+
+		test.Eq(t, [2]int{3, 3}, spans["A"])
+		test.Eq(t, [2]int{11, 15}, spans["wrapper"])
 	})
 
 	t.Run("defaults to the strictest setting", func(t *testing.T) {
@@ -133,6 +156,21 @@ func TestAnalyzeDiagnostics(t *testing.T) {
 		_, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "no_go_files")})
 
 		must.ErrorIs(t, err, analysis.ErrNoGoFiles)
+	})
+
+	t.Run("a directory outside every module", func(t *testing.T) {
+		t.Parallel()
+
+		// Packages load in module mode, where the go command's own account of
+		// this is "directory prefix . does not contain main module or its
+		// selected dependencies" — the symptom, not the cause.
+		dir := t.TempDir()
+		must.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n\nfunc A() {}\n"), 0o600))
+
+		_, err := analysis.Analyze(t.Context(), analysis.Config{Dir: dir})
+
+		must.ErrorIs(t, err, analysis.ErrNotInModule)
+		test.StrContains(t, err.Error(), "go mod init")
 	})
 
 	cases := map[string]string{

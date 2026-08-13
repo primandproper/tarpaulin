@@ -18,11 +18,16 @@ type Function struct {
 	Package string `json:"package"`
 	File    string `json:"file"`
 	Name    string `json:"name"`
+	// Path, EndLine, and Tested are carried on the Go value but left out of the
+	// JSON: the wire shape lists only what is missing, and it names files the
+	// way a person reads them. A caller that renders source instead — the
+	// coverage view — needs to find the file on disk, know how far the
+	// declaration extends, and have the verdict on every function rather than
+	// only the failures.
+	Path    string `json:"-"`
 	Line    int    `json:"line"`
-	// Tested is carried on the Go value but left out of the JSON: the wire
-	// shape lists only what is missing, while callers that render source (the
-	// coverage view) need the verdict on every function.
-	Tested bool `json:"-"`
+	EndLine int    `json:"-"`
+	Tested  bool   `json:"-"`
 }
 
 // Report is the outcome of an analysis run.
@@ -52,6 +57,14 @@ type reportJSON struct {
 // encoding package, which keeps the content type one decision made in one
 // place; EncodeJSON returns exactly what json.Marshal would, with no trailing
 // newline.
+//
+// The directive below is tarp's answer to the one shape it cannot see:
+// TestReportMarshalJSON asserts this method thoroughly and never writes its
+// name, because json.Marshal reaches it by reflection. Every Stringer,
+// driver.Valuer, and interface satisfied for a framework's benefit reads the
+// same way, and the honest fix is a reason naming the test, not a looser rule.
+//
+//tarp:ignore -- reached by reflection through json.Marshal, so no test can name it; asserted by TestReportMarshalJSON
 func (r Report) MarshalJSON() ([]byte, error) {
 	out := reportJSON{
 		Strictness: r.Strictness.String(),

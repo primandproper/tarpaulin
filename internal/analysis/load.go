@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go/token"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -37,6 +38,17 @@ const maxReportedDiagnostics = 10
 // all — an empty directory reads as a perfect score otherwise, which would be a
 // lie.
 var ErrNoGoFiles = platformerrors.New("no Go files found")
+
+// ErrNotInModule is returned when the analyzed directory sits outside every Go
+// module. The go command's own words for this are "directory prefix . does not
+// contain main module or its selected dependencies", which names the symptom
+// and leaves the cause to be guessed at.
+var ErrNotInModule = platformerrors.New(
+	"no go.mod in that directory or any parent, and packages load in module mode: run `go mod init` there first",
+)
+
+// goModFile is the file whose presence marks a module root.
+const goModFile = "go.mod"
 
 // DiagnosticError reports that the analyzed source could not be loaded and
 // type-checked. The old implementation parsed with parser.AllErrors and happily
@@ -86,6 +98,10 @@ func loadPackages(ctx context.Context, dir string, patterns []string) ([]*packag
 
 	loaded, err := packages.Load(cfg, patterns...)
 	if err != nil {
+		if moduleErr := checkModule(dir); moduleErr != nil {
+			return nil, nil, moduleErr
+		}
+
 		return nil, nil, platformerrors.Wrap(err, "loading packages")
 	}
 
@@ -100,6 +116,12 @@ func loadPackages(ctx context.Context, dir string, patterns []string) ([]*packag
 	}
 
 	if diagnostics := collectDiagnostics(dir, kept); len(diagnostics) > 0 {
+		// A directory outside every module fails here, as a list error quoting
+		// the go command. Name the cause before quoting the symptom.
+		if moduleErr := checkModule(dir); moduleErr != nil {
+			return nil, nil, moduleErr
+		}
+
 		return nil, nil, &DiagnosticError{Diagnostics: diagnostics}
 	}
 
@@ -108,6 +130,39 @@ func loadPackages(ctx context.Context, dir string, patterns []string) ([]*packag
 	}
 
 	return kept, fset, nil
+}
+
+// checkModule explains a load failure that a missing go.mod accounts for, and
+// returns nil for one it does not.
+//
+// It is consulted only after loading has already failed, which keeps it out of
+// the way of the arrangements where a module-less directory loads perfectly
+// well — GOPATH mode under GO111MODULE=off, most of all. When loading
+// succeeded, nothing here has an opinion.
+func checkModule(dir string) error {
+	target := absolutePath(dir)
+	if moduleRoot(target) != "" {
+		return nil
+	}
+
+	return platformerrors.Wrapf(ErrNotInModule, "analyzing %s", target)
+}
+
+// moduleRoot returns the nearest directory at or above dir that holds a go.mod,
+// or the empty string when no directory up to the filesystem root does.
+func moduleRoot(dir string) string {
+	for {
+		if info, err := os.Stat(filepath.Join(dir, goModFile)); err == nil && !info.IsDir() {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+
+		dir = parent
+	}
 }
 
 // collectDiagnostics renders every load, parse, and type error as a sorted,
@@ -177,6 +232,16 @@ func anySyntax(pkgs []*packages.Package) bool {
 	return slices.ContainsFunc(pkgs, func(pkg *packages.Package) bool {
 		return len(pkg.Syntax) > 0
 	})
+}
+
+// absolutePath renders path absolutely, and unchanged when the working
+// directory cannot be read to resolve it against.
+func absolutePath(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+
+	return path
 }
 
 // relativePath renders path relative to dir when it lives underneath it, and

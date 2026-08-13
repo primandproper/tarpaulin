@@ -1,12 +1,14 @@
 # PRD status
 
 Where the implementation stands against `PRD.md`, section by section, so a new
-session can pick up without re-deriving anything. Last updated 2026-08-13, at
-commit `a454baf` on branch `build-tarp-analyzer`.
+session can pick up without re-deriving anything. Last updated 2026-08-13, on
+branch `build-tarp-analyzer`.
 
-**Summary:** the analyzer, the corpus, and `analyze` are done and green. `cover
---html` is the one piece of PRD scope that is not built. The GitHub Action and
-SARIF were deferred by the PRD itself.
+**Summary:** every piece of PRD scope is built and green — the analyzer, the
+corpus, `analyze`, and `cover --html`. The GitHub Action and SARIF were deferred
+by the PRD itself. The three known limitations that were awaiting a decision have
+all been settled (§1 below); what remains is our own grade and the smaller
+follow-ups in §3.
 
 ---
 
@@ -20,6 +22,9 @@ SARIF were deferred by the PRD itself.
 | §9.4 Per-package strictness | Not built; the global flag plus the ignore directive is sufficient | — |
 | §3.1 (unstated) `TestMain` | A harness, not a test: it credits nothing below `--strictness=any` | `testdata/test_main`, `TestIsTestFunc` |
 | Score arithmetic (unstated) | Truncated, not rounded — 2 of 3 is 66% | `TestReportScore` |
+| Module requirement (unstated) | Module mode only; a target with no `go.mod` above it is refused by name rather than by the go command's symptom | `ErrNotInModule`, `TestCheckModule`, `TestModuleRoot` |
+| `--package` resolution (unstated) | Arguments beat `--package`; an existing directory is a directory (expanded to `./...`), anything else is a pattern from the working directory | `resolveTarget`, `analyze --help`, README "Choosing what to analyze" |
+| Reflect-invoked methods (unstated) | Reported like anything else; the convention is an ignore directive whose reason names the asserting test | `report.go:MarshalJSON`, README "Methods nothing can name" |
 
 ## Deviations from the plan, deliberate
 
@@ -81,7 +86,7 @@ expectations — it is picked up automatically.
 | Ignore directive | **Done**, reason required |
 | `NO_COLOR` / non-TTY handling | **Done** |
 | Deterministic ordering | **Done** |
-| **`cover --html`** | **NOT BUILT** — see below |
+| `cover --html` | **Done** — see below |
 
 ## §7 Repo setup
 
@@ -97,50 +102,74 @@ question that should be settled before the Action is built.
 
 ---
 
+# What was built for `cover --html`
+
+`internal/coverage`, plus the `cover` subcommand. The old fork at
+`../blanket/output/html/html.go` was **not** reused: the current stdlib
+`cmd/cover/html.go` was read first, as the PRD asked, and the page follows it —
+same topbar, same file picker, same fragment-driven switch.
+
+- **Four colors, not three.** Red never ran, yellow ran with no direct test,
+  green directly tested — and grey for a declaration tarp does not grade (`init`,
+  `main`, generated, ignored) or a file in the profile that was not analyzed.
+  Painting those green would claim a test nobody asked for, and yellow would
+  claim tarp had an opinion it deliberately does not have.
+- **The join.** `Function` gained `Path` (absolute) and `EndLine`, both
+  `json:"-"` so the pinned wire shape is untouched. A profile names files by
+  package path and blocks by line; `sources.go` resolves the former with a cheap
+  `NeedName|NeedFiles` load, and `annotate.go` attributes a block to the function
+  whose `[Line, EndLine]` contains its start line.
+- **The boundary walk** is `x/tools/cover.Boundaries` rewritten to keep the block
+  index (the line number is what attributes a run of source) and to guarantee
+  balanced spans against a stale profile. It is pinned as byte-identical to
+  `go tool cover -html`'s span placement: rendering this repo's own 16-file
+  profile through both and normalizing away the class and title attributes
+  produces no difference.
+- **Verified end to end** on the PRD's opening example: `simple/main.go` reads
+  *100.0% covered, 3/4 tested*, and `B` is the yellow one.
+
 # What is left
 
-## 1. `tarp cover --html` — the only unbuilt PRD scope
+## 1. Known limitations — all three settled
 
-The genuinely novel part of the 2017 tool, and the reason `Report` carries
-`Functions []Function` with a `Tested bool` rather than just a list of failures:
-the three-color render needs the verdict on *every* function, not only the
-missing ones.
+Kept here with the reasoning rather than deleted: each one was a decision, and
+the next person to hit it should find why it went the way it did.
 
-- Renders a cover profile with **red** untested, **yellow** covered but no direct
-  test, **green** directly tested.
-- The old fork lives at `../blanket/output/html/html.go` — a copy of
-  `cmd/cover/html.go` circa 2017. **Check the current stdlib `go tool cover`
-  output before reusing it**; the PRD says so explicitly and eight years have
-  passed.
-- Inputs: `golang.org/x/tools/cover.ParseProfiles` for the profile, plus an
-  `analysis.Report` over the same packages. Joining them needs a per-function
-  line range, which the analyzer does not currently record — `Function` carries
-  the declaration line only. The old `BlanketFunc` kept `DeclPos`/`LBracePos`/
-  `RBracePos`; expect to add an end position to `Function`.
+- ~~**`Report.MarshalJSON` reads as untested against ourselves.**~~ **Settled:
+  documented as a known shape, and the convention applied to ourselves.** A
+  method reached by reflection has no identifier in the test source to find, so
+  it is reported however well it is tested — `Stringer`, `driver.Valuer`, and any
+  interface satisfied for a framework's benefit all read this way. The tool is
+  being correct, so the answer is a directive whose reason names the test that
+  does the asserting: `report.go` now carries *"reached by reflection through
+  json.Marshal, so no test can name it; asserted by TestReportMarshalJSON"*, and
+  the README's "Methods nothing can name" section documents the shape and the
+  convention. The exemption stays auditable — open the named test, or notice
+  loudly when it is gone.
+- ~~**A non-module directory cannot be analyzed.**~~ **Settled: the constraint
+  stands, the message explains it.** `loadPackages` consults `checkModule` only
+  after a load has already failed — so GOPATH mode under `GO111MODULE=off`, where
+  a module-less directory loads fine, is untouched — and returns
+  `analysis.ErrNotInModule` when no `go.mod` sits at or above the target:
+  *"analyzing /tmp/scratch: no go.mod in that directory or any parent, and
+  packages load in module mode: run `go mod init` there first."* Covered by
+  `TestCheckModule`, `TestModuleRoot`, and a `TestAnalyzeDiagnostics` case.
+- ~~**`--package` with a bare pattern resolves against the working directory.**~~
+  **Settled: documented, not changed.** The two rules — arguments win over
+  `--package`, an existing directory is a directory and anything else is a
+  pattern — are now spelled out in `analyze --help` (with a worked example of
+  each shape), in `cover --help`, in both `--package` usage strings, on
+  `resolveTarget`, and in the README's "Choosing what to analyze" table.
 
-## 2. Known limitations worth a decision
-
-- **`Report.MarshalJSON` reads as untested against ourselves.** It is called
-  through `json.Marshal`, and a reflect-driven call is invisible to any static
-  analysis — there is no `MarshalJSON` identifier in the test source to find.
-  This is the tool being correct, not broken. Same will be true for any
-  `Stringer`, `driver.Valuer`, or interface satisfied for a framework's benefit.
-  Worth documenting in the README as a known shape, and possibly worth an
-  ignore-directive convention.
-- **A non-module directory cannot be analyzed.** `../blanket` has no `go.mod`, so
-  go/packages refuses it in module mode: *"directory prefix . does not contain
-  main module."* Fine for any modern repo; the error message could name the
-  cause more helpfully.
-- **`--package` with a bare pattern resolves against the working directory.**
-  `resolveTarget` treats an existing directory as `Dir` and anything else as a
-  pattern from `.`. Reasonable, but undocumented in `--help` beyond one line.
-
-## 3. Our own grade: 56% (36/64)
+## 2. Our own grade: 62% (54/86)
 
 Not a defect — the PRD says to expect a mediocre grade and not to soften
-defaults. The gap barely moves at looser strictness (56/56/57%), so it is
-genuinely missing tests rather than tests filed in the wrong place. If it is
-worth raising, in order of honesty:
+defaults. The gap barely moves at looser strictness (62/62/65%), so it is
+genuinely missing tests rather than tests filed in the wrong place. The 32
+untested split: 12 in `analysis`, 12 in `cli`, 3 in `coverage`
+(`buildPage`, `writeBoundary`, `writeSourceByte` — each exercised through
+`Render` and `annotate`, none named by a test), 3 in `cmd`, 2 in `config`. If it
+is worth raising, in order of honesty:
 
 1. **Analyzer internals** (12 functions) — the `*collector` methods,
    `collectDeclarations`, `loadPackages`, `implementingMethod`,
@@ -149,19 +178,30 @@ worth raising, in order of honesty:
    thesis pointed at itself. Directly testable with the `checkSource` helper
    already in `declarations_internal_test.go`; tests belong in
    `references_internal_test.go`, which is already the right slot.
-2. **CLI rendering** (`renderText`, `writeWarnings`) — easy, real.
+2. **CLI and HTML rendering** (`renderText`, `writeWarnings`, `buildPage`,
+   `writeBoundary`, `writeSourceByte`) — easy, real.
 3. **Cobra constructors and lifecycle** (9 functions) — `newRootCommand`,
    `bootstrap`, `shutdown`, `Execute`. Testable but low value; this is where an
    ignore directive with a reason may be the honest answer.
 4. **Inherited template code** (5 functions) — `cmd/main.run`, the config
    builders, `envVarOptions`, `NewPillars`.
 
-## 4. Smaller follow-ups
+## 3. Smaller follow-ups
 
-- `README.md` documents `cover` as not yet ported; update when it lands.
 - The corpus has no fixture for a package whose *only* test file is an external
   `foo_test.go` referencing an unexported function — impossible to write in Go,
   which is precisely §3.3's point, but a comment fixture asserting the reported
   outcome would document the reasoning where someone will find it.
 - No benchmark exists for the "couple hundred milliseconds inside CI" budget the
   PRD assumes in §3.6. Worth one before deciding anything about RTA.
+- `cover` loads packages twice: once to analyze, once (cheaply, `NeedName` and
+  file lists only) to resolve the profile's package paths to files. Threading the
+  first load's file list out of `analysis` would save the second, at the cost of
+  widening that package's surface for one caller. Not worth it yet.
+- `internal/coverage/testdata/simple.out` is pinned to the line and column
+  numbers in `analysis/testdata/simple/main.go`. Editing that fixture breaks the
+  coverage tests loudly, which is intended, but the profile has to be regenerated
+  by hand: `go test -covermode=count -coverprofile=... .` inside it. The
+  template's `.gitignore` ignores `*.out` and `coverage.*`, which silently
+  excluded both that profile and `internal/coverage/coverage.go`; two negations
+  now keep them tracked. Any future file named that way needs the same.

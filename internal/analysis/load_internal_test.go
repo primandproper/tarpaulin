@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"go/ast"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -85,6 +86,61 @@ func TestCollectDiagnostics(t *testing.T) {
 	})
 }
 
+func TestCheckModule(t *testing.T) {
+	t.Parallel()
+
+	t.Run("names the missing go.mod", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+
+		err := checkModule(dir)
+
+		must.ErrorIs(t, err, ErrNotInModule)
+		test.StrContains(t, err.Error(), dir)
+	})
+
+	t.Run("has no opinion inside a module", func(t *testing.T) {
+		t.Parallel()
+
+		// This test file lives in one, so whatever else went wrong, it was not
+		// this.
+		test.NoError(t, checkModule("."))
+	})
+}
+
+func TestModuleRoot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("finds the nearest go.mod above a directory", func(t *testing.T) {
+		t.Parallel()
+
+		root := t.TempDir()
+		must.NoError(t, os.WriteFile(filepath.Join(root, goModFile), []byte("module example.com/m\n"), 0o600))
+
+		nested := filepath.Join(root, "a", "b")
+		must.NoError(t, os.MkdirAll(nested, 0o750))
+
+		test.Eq(t, root, moduleRoot(nested))
+	})
+
+	t.Run("walks to the filesystem root and gives up", func(t *testing.T) {
+		t.Parallel()
+
+		test.Eq(t, "", moduleRoot(t.TempDir()))
+	})
+
+	t.Run("ignores a go.mod directory", func(t *testing.T) {
+		t.Parallel()
+
+		// A directory named go.mod marks nothing; only a file does.
+		dir := t.TempDir()
+		must.NoError(t, os.Mkdir(filepath.Join(dir, goModFile), 0o750))
+
+		test.Eq(t, "", moduleRoot(dir))
+	})
+}
+
 func TestRenderPackageError(t *testing.T) {
 	t.Parallel()
 
@@ -126,6 +182,27 @@ func TestAnySyntax(t *testing.T) {
 	// it, which would otherwise read as a perfect score.
 	test.False(t, anySyntax([]*packages.Package{{}}))
 	test.True(t, anySyntax([]*packages.Package{{}, {Syntax: []*ast.File{{}}}}))
+}
+
+func TestAbsolutePath(t *testing.T) {
+	t.Parallel()
+
+	t.Run("leaves an absolute path alone", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+
+		test.Eq(t, dir, absolutePath(dir))
+	})
+
+	t.Run("resolves a relative path against the working directory", func(t *testing.T) {
+		t.Parallel()
+
+		expected, err := filepath.Abs("testdata")
+		must.NoError(t, err)
+
+		test.Eq(t, expected, absolutePath("testdata"))
+	})
 }
 
 func TestRelativePath(t *testing.T) {

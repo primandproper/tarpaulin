@@ -30,13 +30,16 @@ const mainPackage = "main"
 // by position instead (PRD 4.2).
 type declKey = token.Position
 
-// declaration is one function that the tool holds to the standard.
+// declaration is one function that the tool holds to the standard. endLine is
+// the line of the declaration's last token, so a consumer holding a line number
+// — a coverage block, say — can ask which function it fell inside.
 type declaration struct {
 	pkgName string
 	dir     string
 	slot    string
 	name    string
 	key     declKey
+	endLine int
 }
 
 // warning is something the user should know about their own source, rendered
@@ -128,6 +131,7 @@ func collectDeclaration(
 		dir:     filepath.Dir(position.Filename),
 		slot:    strings.TrimSuffix(filepath.Base(position.Filename), ".go"),
 		name:    funcName(fn),
+		endLine: fset.Position(funcDecl.End()).Line,
 	}
 }
 

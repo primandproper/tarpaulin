@@ -25,14 +25,19 @@ records why each semantic decision is what it is; read it before changing analyz
   interface dispatch), `strictness.go` (the dial), `report.go` (sorting, score, JSON shape).
 - `internal/analysis/testdata/` — the fixture corpus, one directory per case in PRD section 5. See
   Testing below; these are *not* formatted or linted, deliberately.
+- `internal/coverage/` — the `cover` renderer. `coverage.go` (the `Render` entrypoint, `Config`, and
+  the per-file totals), `sources.go` (turning the package paths a profile names into files on disk),
+  `annotate.go` (the boundary walk and the four verdicts), `html.go` (the page template).
+  `testdata/simple.out` is a real profile over `analysis/testdata/simple`, pinned to that fixture's
+  line and column numbers.
 - `cmd/tools/codegen/configs/` — codegen tool behind `make configs`: builds each environment's
   `*config.Config` as a real, typed Go object (`environments.go`), validates it, and renders it to
   `config/<env>.json` via `config.Render`. The checked-in JSON is a projection of these builders — edit
   the Go, never the JSON, then re-run `make configs`.
 - `config/` — generated per-environment config files (`localdev.json`, `production.json`); committed so
   they stay reviewable, and loadable at runtime via `--config`.
-- `internal/cli/` — cobra root command, the `analyze` subcommand, terminal output, observability
-  bootstrap + shutdown.
+- `internal/cli/` — cobra root command, the `analyze` and `cover` subcommands, terminal output,
+  observability bootstrap + shutdown.
 - `internal/config/` — assembles `observability.Config` and builds the pillars (slog logging + noop
   tracing/metrics/profiling by default). See `Config.NewPillars` for the upgrade path to real telemetry.
   Two loaders use `platform-go/v10/config`: `Load` overlays `TARP_`-prefixed environment
@@ -155,12 +160,18 @@ the list at the module root is worth a look.
 - **Normalize generics through `types.Func.Origin()`** so instantiations collapse to the generic.
 - Sort everything that reaches output (`report.go`), and prefer precise diagnostics over the go
   command's own stdout (`load.go`).
+- `Function` carries `Path` (absolute) and `EndLine` alongside `File` and `Line`, both `json:"-"`.
+  They exist for the coverage view: a cover profile names files by package path and blocks by line,
+  so joining the two needs a file to open and a range to fall inside. Keep them out of the JSON —
+  the wire shape is pinned verbatim in `analysis_test.go`.
 
 ## CLI conventions worth knowing
 
-- Observability logs are structured slog written to **stdout**. `version` and `analyze` print to
-  stdout and emit nothing at the default `info` level, so `tarp analyze --json` stays
-  machine-parseable. Warnings go to **stderr** for the same reason.
+- Observability logs are structured slog written to **stdout**. `version`, `analyze`, and `cover`
+  print to stdout and emit nothing at the default `info` level, so `tarp analyze --json` and
+  `tarp cover --html` stay machine-parseable. Warnings go to **stderr** for the same reason.
+- `cover` renders into memory before writing: a report that fails halfway through should not land on
+  disk over the last good one. It opens no browser, on purpose — `--output` or stdout.
 - The root command sets `SilenceErrors`; `Execute` prints failures itself so that `--fail-on-found`
   can exit non-zero without stapling an `Error:` line under the report it just printed.
 - Color is decided once in `internal/cli/color.go`: off unless stdout is a character device, and off

@@ -66,14 +66,49 @@ make build                  # compile everything, produce artifacts/tarp
 ```
 tarp analyze [packages] [--package=.] [--strictness=file|package|any]
                         [--fail-on-found] [--json]
+tarp cover --html=<profile> [packages] [--package=.] [--output=<file>]
+                            [--strictness=file|package|any]
 ```
 
 | Flag              | Default | Meaning                                                                  |
 | ----------------- | ------- | ------------------------------------------------------------------------ |
-| `--package`, `-p` | `.`     | A directory (expanded to `./...` beneath it) or a go/packages pattern     |
+| `--package`, `-p` | `.`     | A directory (expanded to `./...` beneath it) or a go/packages pattern — see below |
 | `--strictness`    | `file`  | How close a reference has to be to count — see below                     |
 | `--fail-on-found` | `false` | Exit non-zero when anything is reported, without printing an error line   |
 | `--json`          | `false` | Emit the report as JSON on stdout; warnings still go to stderr           |
+| `--html`          | —       | `cover` only: the profile from `go test -coverprofile` to render          |
+| `--output`, `-o`  | stdout  | `cover` only: write the report to this file instead                       |
+
+### Choosing what to analyze
+
+Both subcommands take packages the same way, and there are exactly two rules:
+**arguments win over `--package`**, and **a `--package` value that names an
+existing directory is analyzed as a directory; anything else is a pattern.**
+
+| Invocation                     | Loaded from | Patterns          |
+| ------------------------------ | ----------- | ----------------- |
+| `tarp analyze`                 | `.`         | `./...`           |
+| `tarp analyze ./cmd/... ./io`  | `.`         | `./cmd/... ./io`  |
+| `tarp analyze -p ./internal`   | `./internal`| `./...`           |
+| `tarp analyze -p ./cmd/...`    | `.`         | `./cmd/...`       |
+| `tarp analyze -p example.com/mod/...` | `.`  | `example.com/mod/...` |
+
+A directory becomes the directory the go command runs in, and everything beneath
+it is analyzed — `-p ./internal` and `-p ./internal/...` therefore mean the same
+thing. Anything that is not an existing directory is handed to `go/packages` as
+written and resolved against the *working* directory, which is what makes module
+paths like `example.com/mod/...` work.
+
+The target has to sit inside a Go module. Packages load in module mode, so a
+directory with no `go.mod` in it or any parent cannot be listed, and tarp says so
+rather than passing the go command's "directory prefix . does not contain main
+module" along:
+
+```
+$ tarp analyze --package /tmp/scratch
+Error: analyzing /tmp/scratch: no go.mod in that directory or any parent, and
+packages load in module mode: run `go mod init` there first
+```
 
 ### Strictness
 
@@ -113,6 +148,26 @@ The reason is required. A bare `//tarp:ignore` exempts nothing and earns a
 warning on stderr, because an escape hatch that costs nothing to use is just a
 way to make the score go up.
 
+### Methods nothing can name
+
+A method a framework reaches by reflection will be reported no matter how well
+it is tested, because there is no reference to find. `MarshalJSON` is the
+canonical case: the test calls `json.Marshal(value)`, and the string
+`MarshalJSON` appears nowhere in it. `String`, `driver.Valuer`, `sort.Interface`,
+and any interface satisfied for somebody else's benefit read the same way.
+
+This is the tool being correct, not blind — it reports what is true of the
+source. The convention is a directive whose reason names the test that does the
+asserting, which is what tarp does to itself in `internal/analysis/report.go`:
+
+```go
+//tarp:ignore -- reached by reflection through json.Marshal, so no test can name it; asserted by TestReportMarshalJSON
+func (r Report) MarshalJSON() ([]byte, error) { ... }
+```
+
+That keeps the exemption auditable: the claim is checkable by opening the named
+test, and it goes stale loudly if the test is ever deleted.
+
 ### In CI
 
 ```bash
@@ -136,6 +191,33 @@ line stapled underneath it. `--json` gives a stable shape to parse:
 Output is deterministic — sorted by file, then declaration line — and color is
 dropped when stdout is not a terminal, when `NO_COLOR` is set, or when
 `TERM=dumb`.
+
+### The coverage view
+
+```bash
+go test -coverprofile=coverage.out ./...
+tarp cover --html=coverage.out --package ./... -o coverage.html
+```
+
+`cover` renders the page `go tool cover -html` renders — same layout, same file
+picker, same spans in the same places — with the green split in two:
+
+| Color      | Meaning                                                              |
+| ---------- | -------------------------------------------------------------------- |
+| **red**    | Never ran                                                            |
+| **yellow** | Ran, in a function no test names directly                            |
+| **green**  | Ran, in a function a `TestXxx` body references                       |
+| **grey**   | Ran, in a declaration tarp does not grade (`init`, `main`, generated, ignored) — or in a package that was not analyzed |
+
+Yellow is the whole point: it is the code `go test -cover` calls covered and this
+tool calls untested. On the example above, the file reads 100% covered and 3/4
+tested, and `B` is the yellow one.
+
+The report goes to stdout unless `--output` names a file, and no browser is
+opened. The profile's packages are analyzed exactly as `analyze` analyzes them,
+so `--package` and `--strictness` mean the same thing here. The grade in the
+header covers the files the profile describes, so it can differ from `tarp
+analyze`'s when the profile does not reach every package.
 
 ## How it works
 
@@ -176,7 +258,8 @@ make build      # compile all packages + build the binary with version metadata
 cmd/main/                      # entrypoint: signal-cancellable context -> cli.Execute
 internal/analysis/             # the analyzer: load, declarations, references, strictness
 internal/analysis/testdata/    # the fixture corpus, one directory per case
-internal/cli/                  # cobra root command, analyze subcommand, output
+internal/coverage/             # the cover profile -> annotated HTML renderer
+internal/cli/                  # cobra root command, analyze/cover subcommands, output
 internal/config/               # assembles observability.Config and builds the pillars
 version/                       # build metadata, injected via -ldflags by scripts/build.sh
 scripts/                       # build/format/lint/test/shellcheck helpers
@@ -204,9 +287,9 @@ unbounded number of syntactic answers. Everything that made it hard is free
 under `go/types`; the fixtures that were expensive to pass in 2017 are kept in
 the corpus precisely because they once were.
 
-Not yet ported: `tarp cover --html`, which renders a coverage profile with three
-colors — red untested, yellow covered but with no direct test, green directly
-tested.
+The one idea carried forward whole is the three-color coverage view, which is
+what `tarp cover --html` renders — rebuilt against today's `go tool cover`
+output rather than the 2017 fork of it.
 
 ## License
 

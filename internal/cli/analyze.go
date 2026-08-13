@@ -37,9 +37,17 @@ func (a *application) newAnalyzeCommand() *cobra.Command {
 		Short: "Report the functions in a package that have no direct unit test.",
 		Long: "Analyze loads a package with its tests and reports every function that no\n" +
 			"TestXxx body references.\n\n" +
-			"Packages may be given as arguments; with none, --package is analyzed (a\n" +
-			"directory is expanded to ./... beneath it, anything else is treated as a\n" +
-			"go/packages pattern).",
+			"What gets analyzed:\n" +
+			"  tarp analyze                 the current directory and everything beneath it\n" +
+			"  tarp analyze ./cmd/... ./io  the patterns given, resolved from here\n" +
+			"  tarp analyze -p ./internal   that directory, expanded to ./... beneath it\n" +
+			"  tarp analyze -p ./cmd/...    a pattern, resolved from here\n\n" +
+			"Arguments take precedence over --package. A --package value naming an existing\n" +
+			"directory is loaded as that directory, expanded to ./... beneath it; anything\n" +
+			"else is handed to go/packages as written and resolved against the working\n" +
+			"directory, so package paths such as example.com/mod/... work too.\n\n" +
+			"The target must sit inside a Go module: packages load in module mode, and a\n" +
+			"directory with no go.mod above it cannot be listed.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runAnalyze(cmd, args, opts)
@@ -47,7 +55,7 @@ func (a *application) newAnalyzeCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&opts.pkg, "package", "p", ".",
-		"directory or package pattern to analyze")
+		"`directory` to analyze (expanded to ./... beneath it), or a go/packages pattern resolved from here; ignored when arguments are given")
 	cmd.Flags().StringVarP(&opts.strictness, "strictness", "s", analysis.StrictnessFile.String(),
 		"how close a reference must be to count: file, package, or any")
 	cmd.Flags().BoolVarP(&opts.failOnFound, "fail-on-found", "F", false,
@@ -110,9 +118,13 @@ func writeWarnings(w io.Writer, warnings []string) error {
 }
 
 // resolveTarget turns the flag and arguments into a directory and the patterns
-// to load inside it. An existing directory is expanded to everything beneath
-// it; anything else is handed to go/packages as written, so package paths such
-// as example.com/mod/... still work.
+// to load inside it.
+//
+// Arguments win over --package and are resolved from the working directory, the
+// way the go command resolves its own. Failing those, a --package value naming
+// an existing directory becomes the directory itself, expanded to everything
+// beneath it; anything else is handed to go/packages as written, so package
+// paths such as example.com/mod/... still work.
 func resolveTarget(pkg string, args []string) (dir string, patterns []string) {
 	if len(args) > 0 {
 		return ".", args

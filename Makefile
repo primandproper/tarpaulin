@@ -121,3 +121,10 @@ run:
 .PHONY: test
 test: $(ARTIFACTS_DIR)
 	$(SCRIPTS_DIR)/test.sh
+
+# bench measures what an analysis costs. PRD 3.6 spends a latency budget it never
+# measured; this is where that budget gets checked. Pass extra flags through,
+# e.g. `make bench BENCH_ARGS="-count 3"`.
+.PHONY: bench
+bench:
+	$(SCRIPTS_DIR)/bench.sh $(BENCH_ARGS)

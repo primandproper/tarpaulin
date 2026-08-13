@@ -57,6 +57,7 @@ make run ARGS="version"   # go run the CLI with arguments
 make format         # Format all Go code (imports, field alignment, tag alignment, gofmt)
 make lint           # Run golangci-lint (Docker) + shellcheck
 make test           # Run tests (race detector, shuffle, failfast); excludes cmd packages
+make bench          # Run benchmarks (no race, no shuffle); BENCH_ARGS="-count 3" to pass flags
 ```
 
 Run a single test:
@@ -96,6 +97,11 @@ because `format_imports.sh` runs `dirname` on it to derive the org-level prefix.
   *and neither can its parent*, so those live in their own top-level test functions.
 - `make test` excludes `cmd` packages, so keep testable logic in `internal/` and `version/`.
 - Test command: `CGO_ENABLED=1 go test -shuffle=on -race -vet=all -failfast`.
+- Benchmarks live in `internal/analysis/benchmark_test.go` (end to end) and
+  `benchmark_internal_test.go` (the load/collect split). They exist to keep PRD 3.6's latency
+  assumption honest: an analysis is ~99.9% go/packages loading, so a change that adds work to the
+  *load mode* is the one to measure, not one that adds a pass over syntax already in memory. The
+  numbers are recorded in `PRD_STATUS.md` §3.
 
 ### The corpus
 

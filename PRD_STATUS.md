@@ -7,8 +7,9 @@ branch `build-tarp-analyzer`.
 **Summary:** every piece of PRD scope is built and green — the analyzer, the
 corpus, `analyze`, and `cover --html`. The GitHub Action and SARIF were deferred
 by the PRD itself. The three known limitations that were awaiting a decision have
-all been settled (§1 below); what remains is our own grade and the smaller
-follow-ups in §3.
+all been settled (§1), and the two follow-ups worth building — the §3.3 fixture
+and the §3.6 benchmark — are built (§3). What is genuinely left is our own grade
+(§2) and two follow-ups deliberately left alone.
 
 ---
 
@@ -71,9 +72,9 @@ skipped; position-keyed identity (§4.2); `TypesInfo.Uses` reference collection
 with `Origin()` normalization (§4.3); clean diagnostics rather than panics
 (§4.4); fully sorted output (§4.5).
 
-## §5 Corpus — 46 fixture directories, all green
+## §5 Corpus — 47 fixture directories, all green
 
-42 graded at all three strictness levels by `TestCorpus`; 4 error-path fixtures
+43 graded at all three strictness levels by `TestCorpus`; 4 error-path fixtures
 driven by `TestAnalyzeDiagnostics`. Every subsection of §5.1 through §5.8 has
 coverage. Adding a case is: create the directory, write the fixture, mark the
 expectations — it is picked up automatically.
@@ -186,14 +187,36 @@ is worth raising, in order of honesty:
 4. **Inherited template code** (5 functions) — `cmd/main.run`, the config
    builders, `envVarOptions`, `NewPillars`.
 
-## 3. Smaller follow-ups
+## 3. Smaller follow-ups — two done, two standing by choice
 
-- The corpus has no fixture for a package whose *only* test file is an external
-  `foo_test.go` referencing an unexported function — impossible to write in Go,
-  which is precisely §3.3's point, but a comment fixture asserting the reported
-  outcome would document the reasoning where someone will find it.
-- No benchmark exists for the "couple hundred milliseconds inside CI" budget the
-  PRD assumes in §3.6. Worth one before deciding anything about RTA.
+- ~~No fixture for a package whose only test file is an external one.~~ **Done:
+  `testdata/external_only_unexported`.** 47 fixture directories now. The external
+  test package cannot legally name an unexported function, so it is reported at
+  every level including `any` — no position on the dial can rescue a test that
+  would not compile, and the fix is a second internal test file. The fixture
+  carries that reasoning in its doc comment, where someone hitting the report
+  will find it, and points at `internal_and_external` for the fix.
+- ~~No benchmark for the §3.6 latency budget.~~ **Done: `make bench`
+  (`scripts/bench.sh`), `BenchmarkAnalyze` plus `BenchmarkLoadPackages` and
+  `BenchmarkCollect` to split the total.** On an M4 Max with a warm build cache,
+  10 iterations each:
+
+  | Target | `Analyze` | of which loading | of which collecting |
+  |---|---|---|---|
+  | one small package (`testdata/simple`) | 169 ms | 168 ms | 0.004 ms |
+  | interface dispatch (`testdata/interface_single_impl`) | 166 ms | 169 ms | 0.006 ms |
+  | this module, 7 packages with tests | 509 ms | 508 ms | 0.69 ms |
+
+  **The budget is spent entirely by the go toolchain.** There is a ~168 ms floor
+  that is `go list` shelling out, and everything above it is parsing and
+  type-checking; the two passes this repo owns are 0.001%–0.14% of wall clock, and
+  the sole-implementer search does not register at all. So §3.6's assumption
+  holds, but not for the reason it gives — the heuristic is not cheap *relative
+  to* an RTA callgraph, it is invisible next to the load either way. **What this
+  says about RTA:** the objection to it is not the graph construction, it is that
+  RTA needs whole-program type information — `NeedDeps`/`NeedImports` and every
+  dependency type-checked — which lands squarely on the 99.9% side of this table.
+  Measure the load mode, not the algorithm, before revisiting.
 - `cover` loads packages twice: once to analyze, once (cheaply, `NeedName` and
   file lists only) to resolve the profile's package paths to files. Threading the
   first load's file list out of `analysis` would save the second, at the cost of

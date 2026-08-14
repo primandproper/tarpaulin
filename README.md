@@ -336,7 +336,7 @@ Two bounded extensions to lexical scope:
 make format     # imports (gci), field/tag alignment, gofmt -s
 make lint       # golangci-lint (Docker) + shellcheck (Docker)
 make test       # go test -shuffle -race -vet=all -failfast (excludes cmd)
-make bench      # benchmarks; a run is ~99.9% go/packages loading (see PRD_STATUS.md)
+make bench      # benchmarks; a run is ~99.9% go/packages loading (see CLAUDE.md)
 make build      # compile all packages + build the binary with version metadata
 make release    # cross-compile the release archives into artifacts/release
 ```

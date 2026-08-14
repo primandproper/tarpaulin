@@ -15,7 +15,7 @@ import (
 // IgnoreDirective exempts the declaration it precedes. A reason is required —
 // the escape hatch is what decides whether the tool is adoptable on a real
 // codebase, and one sentence of justification is what keeps it from becoming a
-// way to make the score go up (PRD 9.2).
+// way to make the score go up.
 //
 //	//tarp:ignore -- talks to a live payment processor; covered by the e2e suite
 const IgnoreDirective = "//tarp:ignore"
@@ -27,7 +27,7 @@ const mainPackage = "main"
 // declKey identifies a function by where it is declared. Object identity is not
 // usable here: the same function yields different *types.Func pointers in the
 // source variant and the test variants of its package, so references are unioned
-// by position instead (PRD 4.2).
+// by position instead.
 type declKey = token.Position
 
 // declaration is one function that the tool holds to the standard. endLine is
@@ -143,7 +143,7 @@ func collectDeclaration(
 
 // isNeverReported covers the declarations that are always exempt: nobody writes
 // a unit test for init or for main, and demanding one only teaches users to
-// distrust the report (PRD 3.7).
+// distrust the report.
 func isNeverReported(fn *types.Func, funcDecl *ast.FuncDecl, pkgName string) bool {
 	if funcDecl.Recv != nil {
 		return false

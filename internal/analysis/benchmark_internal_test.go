@@ -24,8 +24,8 @@ var benchmarkDirs = map[string]string{
 // BenchmarkLoadPackages measures the half of an analysis that belongs to the go
 // toolchain: `go list`, parsing, and type-checking every variant of every
 // package. Subtracting it from BenchmarkAnalyze leaves what this package
-// actually spends, which is the number that matters for PRD 3.6 — a callgraph
-// has to be paid for out of that share, not out of the total.
+// actually spends, which is the number that matters when the RTA callgraph is
+// revisited — it has to be paid for out of that share, not out of the total.
 func BenchmarkLoadPackages(b *testing.B) {
 	for name, patterns := range benchmarkTargets {
 		b.Run(name, func(b *testing.B) {

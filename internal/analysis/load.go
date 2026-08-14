@@ -25,8 +25,7 @@ const loadMode = packages.NeedName |
 
 // syntheticTestSuffix marks the test binary's main package, which the toolchain
 // synthesizes and which references every TestXxx in the package. Analyzing it
-// would credit every test function to itself and poison the reference set
-// (PRD 4.1).
+// would credit every test function to itself and poison the reference set.
 const syntheticTestSuffix = ".test"
 
 // maxReportedDiagnostics bounds how much of a broken build we quote back. A

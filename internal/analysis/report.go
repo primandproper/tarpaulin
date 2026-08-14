@@ -190,7 +190,7 @@ func score(tested, declared int) int {
 }
 
 // sortFunctions orders functions by file, then declaration line, then name, so
-// output never depends on map iteration order (PRD 4.5).
+// output never depends on map iteration order.
 func sortFunctions(functions []Function) {
 	slices.SortFunc(functions, func(a, b Function) int {
 		return cmp.Or(

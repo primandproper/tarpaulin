@@ -1,7 +1,7 @@
 package funcvar
 
-// Package-level func-valued vars are not function declarations (PRD 9.1,
-// decided: no), so Assigned is never counted, tested or reported.
+// Package-level func-valued vars are deliberately not function declarations,
+// so Assigned is never counted, tested or reported.
 var Assigned = func() string { return "assigned" }
 
 func Declared() string { return "declared" }

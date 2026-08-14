@@ -13,8 +13,9 @@ The module path is `tarpaulin`; every user-visible name is `tarp` — the binary
 
 `go test -cover` measures statement coverage, which cannot distinguish a function that was tested
 from one that was merely executed. tarp asks the stricter question — does a `TestXxx` body actually
-reference this function? — and grades the package on the answer. `PRD.md` is the specification and
-records why each semantic decision is what it is; read it before changing analyzer behavior.
+reference this function? — and grades the package on the answer. The semantic decisions and the
+reasoning behind them live in the code comments next to what they govern, and in the fixture corpus;
+read the fixture for a rule before changing it.
 
 ## Layout
 
@@ -23,7 +24,7 @@ records why each semantic decision is what it is; read it before changing analyz
   `load.go` (go/packages loading, variant filtering, diagnostics), `declarations.go` (what is held
   accountable, and the exclusions), `references.go` (what a test body resolves to, the one-hop rule,
   interface dispatch), `strictness.go` (the dial), `report.go` (sorting, score, JSON shape).
-- `internal/analysis/testdata/` — the fixture corpus, one directory per case in PRD section 5. See
+- `internal/analysis/testdata/` — the fixture corpus, one directory per semantic case. See
   Testing below; these are *not* formatted or linted, deliberately.
 - `internal/coverage/` — the `cover` renderer. `coverage.go` (the `Render` entrypoint, `Config`, and
   the per-file totals), `sources.go` (turning the package paths a profile names into files on disk),
@@ -44,8 +45,12 @@ records why each semantic decision is what it is; read it before changing analyz
   variables on the flag/default-seeded config, and `LoadFromFile` decodes a complete JSON config file
   and then overlays the same environment variables. `Render` goes the other way: it validates typed
   `Config` objects and writes them to disk (see `make configs`).
-- `version/` — build metadata (`CommitHash`/`BuildTime`/`CommitTime`), injected via `-ldflags` by
-  `scripts/build.sh`.
+- `version/` — build metadata (`Version`/`CommitHash`/`BuildTime`/`CommitTime`), injected via
+  `-ldflags` by `scripts/build.sh`. `Version` is the release tag, which is what the GitHub Action
+  pins and what a bug report cites.
+- `internal/sarif/` — the SARIF 2.1.0 renderer behind `analyze --format=sarif`.
+- `action.yml` + `.github/workflows/release.yaml` + `scripts/release.sh` — the composite GitHub
+  Action and the release pipeline that builds the binaries it downloads.
 
 ## Common Commands
 
@@ -98,10 +103,29 @@ because `format_imports.sh` runs `dirname` on it to derive the org-level prefix.
 - `make test` excludes `cmd` packages, so keep testable logic in `internal/` and `version/`.
 - Test command: `CGO_ENABLED=1 go test -shuffle=on -race -vet=all -failfast`.
 - Benchmarks live in `internal/analysis/benchmark_test.go` (end to end) and
-  `benchmark_internal_test.go` (the load/collect split). They exist to keep PRD 3.6's latency
-  assumption honest: an analysis is ~99.9% go/packages loading, so a change that adds work to the
-  *load mode* is the one to measure, not one that adds a pass over syntax already in memory. The
-  numbers are recorded in `PRD_STATUS.md` §3.
+  `benchmark_internal_test.go` (the load/collect split). They exist to keep the latency assumption
+  honest: an analysis is ~99.9% go/packages loading, so a change that adds work to the *load mode*
+  is the one to measure, not one that adds a pass over syntax already in memory.
+
+### What an analysis actually costs
+
+`make bench`. On an M4 Max with a warm build cache, 10 iterations each:
+
+| Target | `Analyze` | of which loading | of which collecting |
+|---|---|---|---|
+| one small package (`testdata/simple`) | 169 ms | 168 ms | 0.004 ms |
+| interface dispatch (`testdata/interface_single_impl`) | 166 ms | 169 ms | 0.006 ms |
+| this module, 7 packages with tests | 509 ms | 508 ms | 0.69 ms |
+
+**The budget is spent entirely by the go toolchain.** There is a ~168 ms floor that is `go list`
+shelling out, and everything above it is parsing and type-checking. The two passes this repo owns
+are 0.001%–0.14% of wall clock, and the sole-implementer search does not register at all.
+
+**What this says about the deferred RTA callgraph:** the objection to it is not graph construction.
+RTA needs whole-program type information — `NeedDeps`/`NeedImports` and every dependency
+type-checked — which lands squarely on the 99.9% side of that table. Measure the load mode, not the
+algorithm, before revisiting. `soleImplementation` in `references.go` is the cheap heuristic RTA
+would replace, and `testdata/interface_two_impls` documents the case where it withholds credit.
 
 ### The corpus
 
@@ -125,8 +149,25 @@ automatically. Error-path fixtures (`unparseable`, `no_go_files`, `broken_packag
 are listed in `errorFixtures` and exercised by `TestAnalyzeDiagnostics` instead.
 
 Because these fixtures are deliberately unformatted, deliberately broken, or pinned to exact line
-numbers, `testdata/` is excluded from `scripts/format_golang.sh`, `scripts/format_imports.sh`, and
-`scripts/goimports.sh`. Do not remove those exclusions.
+numbers, `testdata/` is excluded from `scripts/format_golang.sh`, `scripts/format_imports.sh`,
+`scripts/goimports.sh`, and the `gofmt` check in `.github/workflows/formatting.yaml`. Do not remove
+those exclusions — `unparseable/main.go` does not parse, on purpose, and `gofmt -l` walks the
+filesystem rather than Go's package wildcard, so it descends into `testdata/` unless told not to.
+
+### The coverage profile fixture
+
+`internal/coverage/testdata/simple.out` is a real profile pinned to the exact line *and column*
+numbers in `analysis/testdata/simple/main.go`. Editing that fixture breaks the coverage tests
+loudly, which is intended — but the profile then has to be regenerated by hand:
+
+```bash
+cd internal/analysis/testdata/simple && go test -covermode=count -coverprofile=/path/to/simple.out .
+```
+
+The template's `.gitignore` ignores `*.out` and `coverage.*`, which silently excluded both that
+profile and `internal/coverage/coverage.go` from git. Two negations now keep them tracked. **Any
+future file named that way needs the same** — check `git status --ignored` if a new file mysteriously
+never shows up.
 
 ## Reach for platform-go first
 

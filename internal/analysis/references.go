@@ -14,7 +14,7 @@ import (
 // internalTestSuffix names the second file of a test slot. Go forbids
 // package foo_test from referencing unexported identifiers in package foo, so
 // when foo_test.go is external, foo_internal_test.go is the only place an
-// unexported function can be tested from — the pair is the slot (PRD 3.3).
+// unexported function can be tested from — the pair is the slot.
 const internalTestSuffix = "_internal"
 
 // refSite records where a reference was found. Everything the strictness dial
@@ -125,7 +125,7 @@ func (c *collector) siteFor(file *ast.File) refSite {
 
 // walkTestBody records references inside a TestXxx body, taking exactly one hop
 // into the initializers of package-level vars declared in test files so that
-// package-level test tables count (PRD 3.5). The hop is deliberately not
+// package-level test tables count. The hop is deliberately not
 // recursive: following calls arbitrarily would quietly collapse `file` mode
 // into `any`.
 func (c *collector) walkTestBody(pkg *packages.Package, body ast.Node, site refSite, tables map[*types.Var][]ast.Expr) {
@@ -202,9 +202,11 @@ func (c *collector) record(fn *types.Func, site refSite) {
 }
 
 // soleImplementation returns the single named type's method satisfying the
-// interface method, or nil when the answer is ambiguous. This is rung one of
-// PRD 3.6: a cheap, explainable heuristic in place of whole-program analysis
-// that would cost more than the entire run's time budget.
+// interface method, or nil when the answer is ambiguous. It is a deliberately
+// cheap, explainable heuristic standing in for whole-program analysis: an RTA
+// callgraph would resolve the ambiguous cases too, at the cost of whole-program
+// type information. See CLAUDE.md on where an analysis actually spends its time
+// before concluding that trade is affordable.
 func soleImplementation(method *types.Func, iface *types.Interface) *types.Func {
 	pkg := method.Pkg()
 	if pkg == nil {

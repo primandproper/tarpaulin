@@ -38,7 +38,7 @@ func TestAnalyze(t *testing.T) {
 	t.Run("reports the function that go test -cover cannot see", func(t *testing.T) {
 		t.Parallel()
 
-		// simple is the PRD's opening example: A, B and C are each called by
+		// simple is the canonical example: A, B and C are each called by
 		// wrapper, and wrapper has a test, so statement coverage reads 100%
 		// while B has no test of its own.
 		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "simple")})

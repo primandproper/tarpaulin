@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build the release archives the GitHub Action downloads. PRD 8 requires a
+# Build the release archives the GitHub Action downloads. The Action needs a
 # prebuilt binary so consumers never pay `go install` against platform-go's
 # module graph, and this is what produces it.
 #

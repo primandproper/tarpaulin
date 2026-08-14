@@ -18,7 +18,7 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// corpusDir holds one directory per case in PRD section 5.
+// corpusDir holds one directory per semantic case the analyzer has to get right.
 const corpusDir = "testdata"
 
 // wantDirective marks a fixture declaration with the expectation the corpus

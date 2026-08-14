@@ -5,7 +5,7 @@
 package generated
 
 // Excluding generated files is non-optional: without it every protobuf-bearing
-// repository scores near zero and the tool is unusable (PRD 3.7).
+// repository scores near zero and the tool is unusable.
 
 //tarp:want excluded
 func GeneratedOne() string { return "one" }

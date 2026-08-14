@@ -6,7 +6,7 @@ func Ignored() string { return "ignored" }
 
 // A bare directive with no reason does not exempt anything: the escape hatch
 // costs one sentence, and a reasonless one is indistinguishable from giving up
-// (PRD 9.2, decided: reason required).
+// — a reason is required.
 //
 //tarp:ignore
 //tarp:want untested=file,package,any

@@ -14,7 +14,7 @@ import (
 )
 
 // simpleProfile is a real `go test -covermode=count` profile over the analysis
-// corpus' `simple` package: the PRD's opening example, where every statement
+// corpus' `simple` package: the canonical example, where every statement
 // runs and one function still has no test of its own. It is checked in rather
 // than generated so the test needs no toolchain of its own — the cost is that
 // editing simple/main.go shifts the line and column numbers in it out from

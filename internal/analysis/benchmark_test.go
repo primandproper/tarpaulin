@@ -15,8 +15,8 @@ import (
 // it.
 const moduleRootDir = "../.."
 
-// BenchmarkAnalyze measures what an analysis costs, because PRD 3.6 spends a
-// budget it never measured: the interface heuristic is justified there by an
+// BenchmarkAnalyze measures what an analysis costs, because the design spends a
+// latency budget it never measured: the interface heuristic is justified by an
 // assumption that a run finishes in a couple hundred milliseconds inside CI, and
 // the RTA callgraph is deferred on the same assumption. Numbers before either is
 // revisited.
@@ -32,7 +32,7 @@ func BenchmarkAnalyze(b *testing.B) {
 		// overhead plus a single package load.
 		"one small package": {Dir: filepath.Join(corpusDir, "simple")},
 		// The heuristic under measurement: an interface, its implementations,
-		// and the sole-implementer search PRD 3.6 describes.
+		// and the sole-implementer search over them.
 		"interface dispatch": {Dir: filepath.Join(corpusDir, "interface_single_impl")},
 		// The realistic CI shape: this module, tests and all.
 		"this module": {Dir: moduleRootDir, Patterns: []string{"./internal/...", "./version/...", "./cmd/..."}},

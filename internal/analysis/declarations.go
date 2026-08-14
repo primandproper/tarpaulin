@@ -34,7 +34,12 @@ type declKey = token.Position
 // the line of the declaration's last token, so a consumer holding a line number
 // — a coverage block, say — can ask which function it fell inside.
 type declaration struct {
+	// pkgName is the package clause name, which is what decides whether a
+	// declaration is exempt for being main. pkgPath is the import path, which
+	// is what identifies a package: a module of any size has several packages
+	// named config, and only the path tells them apart.
 	pkgName string
+	pkgPath string
 	dir     string
 	slot    string
 	name    string
@@ -128,6 +133,7 @@ func collectDeclaration(
 	declarations[position] = &declaration{
 		key:     position,
 		pkgName: strings.TrimSuffix(pkg.Name, "_test"),
+		pkgPath: strings.TrimSuffix(pkg.PkgPath, "_test"),
 		dir:     filepath.Dir(position.Filename),
 		slot:    strings.TrimSuffix(filepath.Base(position.Filename), ".go"),
 		name:    funcName(fn),

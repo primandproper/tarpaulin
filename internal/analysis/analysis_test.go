@@ -52,11 +52,15 @@ func TestAnalyze(t *testing.T) {
 		test.Eq(t, 75, report.Score())
 		test.Eq(t, []analysis.Function{{
 			Package: "simple",
-			File:    "main.go",
-			Path:    mainGo,
-			Name:    "B",
-			Line:    7,
-			EndLine: 7,
+			// The import path as well as the clause name: a module of real size
+			// holds many packages named the same thing, and only the path tells
+			// them apart.
+			PackagePath: "github.com/primandproper/tarpaulin/internal/analysis/testdata/simple",
+			File:        "main.go",
+			Path:        mainGo,
+			Name:        "B",
+			Line:        7,
+			EndLine:     7,
 		}}, report.Untested())
 	})
 

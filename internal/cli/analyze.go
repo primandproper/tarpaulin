@@ -8,6 +8,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
+	"github.com/primandproper/tarpaulin/internal/sarif"
+	"github.com/primandproper/tarpaulin/version"
 
 	"github.com/primandproper/platform-go/v10/encoding"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
@@ -15,14 +17,28 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// errFunctionsFound is returned under --fail-on-found so the process exits
-// non-zero. It is printed by nobody: the report itself is the message.
-var errFunctionsFound = platformerrors.New("functions without direct unit tests were found")
+// The gate sentinels are returned when a threshold the caller set was not met,
+// so the process exits non-zero. Neither is printed as an error: by the time
+// either is returned the operator has already been told everything — the report
+// itself for --fail-on-found, and the line on stderr below for --min-score.
+var (
+	errFunctionsFound    = platformerrors.New("functions without direct unit tests were found")
+	errScoreBelowMinimum = platformerrors.New("the score is below the required minimum")
+)
+
+// The bounds of --min-score, which is a percentage like the score it is
+// compared against.
+const (
+	minimumScore = 0
+	maximumScore = 100
+)
 
 // analyzeOptions holds the flag values for one invocation.
 type analyzeOptions struct {
 	pkg         string
 	strictness  string
+	format      string
+	minScore    int
 	failOnFound bool
 	asJSON      bool
 }
@@ -47,7 +63,18 @@ func (a *application) newAnalyzeCommand() *cobra.Command {
 			"else is handed to go/packages as written and resolved against the working\n" +
 			"directory, so package paths such as example.com/mod/... work too.\n\n" +
 			"The target must sit inside a Go module: packages load in module mode, and a\n" +
-			"directory with no go.mod above it cannot be listed.",
+			"directory with no go.mod above it cannot be listed.\n\n" +
+			"Failing the build:\n" +
+			"  --fail-on-found    exit non-zero if anything at all is reported\n" +
+			"  --min-score 50     exit non-zero if the grade falls below 50%\n\n" +
+			"Both are off by default, and either can be combined with any --format.\n" +
+			"Neither prints an \"Error:\" line: the report, and the one line --min-score\n" +
+			"writes to stderr, are the whole message.\n\n" +
+			"Output:\n" +
+			"  --format text   the human-facing summary (the default)\n" +
+			"  --format json   the report as JSON; --json is shorthand for this\n" +
+			"  --format sarif  a SARIF 2.1.0 document, for viewers and code scanning\n\n" +
+			"Warnings go to stderr in every format, so stdout stays parseable.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runAnalyze(cmd, args, opts)
@@ -60,8 +87,12 @@ func (a *application) newAnalyzeCommand() *cobra.Command {
 		"how close a reference must be to count: file, package, or any")
 	cmd.Flags().BoolVarP(&opts.failOnFound, "fail-on-found", "F", false,
 		"exit non-zero when functions without direct tests are found")
+	cmd.Flags().IntVarP(&opts.minScore, "min-score", "m", minimumScore,
+		"exit non-zero when the grade falls below this `percentage` (0 to 100; 0 never fails)")
+	cmd.Flags().StringVarP(&opts.format, "format", "f", formatText.String(),
+		"how to render the report: text, json, or sarif")
 	cmd.Flags().BoolVarP(&opts.asJSON, "json", "j", false,
-		"render the report as JSON")
+		"shorthand for --format=json")
 
 	return cmd
 }
@@ -70,6 +101,18 @@ func (a *application) newAnalyzeCommand() *cobra.Command {
 func (a *application) runAnalyze(cmd *cobra.Command, args []string, opts *analyzeOptions) error {
 	strictness, err := analysis.ParseStrictness(opts.strictness)
 	if err != nil {
+		return err
+	}
+
+	rendering, err := resolveFormat(opts.format, cmd.Flags().Changed("format"), opts.asJSON)
+	if err != nil {
+		return err
+	}
+
+	// Every flag is checked before anything is loaded: a typo in a threshold or
+	// a format should cost a runner no time at all, let alone a full package
+	// load.
+	if err = checkMinScore(opts.minScore); err != nil {
 		return err
 	}
 
@@ -94,15 +137,54 @@ func (a *application) runAnalyze(cmd *cobra.Command, args []string, opts *analyz
 		return err
 	}
 
-	if err = render(cmd.OutOrStdout(), report, opts.asJSON); err != nil {
+	if err = render(cmd.OutOrStdout(), report, rendering); err != nil {
 		return err
 	}
 
+	// --fail-on-found is the strictly stronger gate: a score below any minimum
+	// implies something was reported, so when both are set and both trip, the
+	// score line underneath would be saying the same thing twice.
 	if opts.failOnFound && len(report.Untested()) > 0 {
 		return errFunctionsFound
 	}
 
+	return checkScore(cmd.ErrOrStderr(), report.Score(), opts.minScore)
+}
+
+// checkMinScore rejects a --min-score outside the range a score can occupy.
+// Without it, --min-score 150 would be a build that fails forever for a reason
+// nothing on screen explains.
+func checkMinScore(minimum int) error {
+	if minimum < minimumScore || minimum > maximumScore {
+		// The platform sentinel is what a caller branches on; the message is
+		// what an operator reads. Wrapping carries both.
+		return platformerrors.Wrapf(
+			platformerrors.ErrUnrecognizedInputValue,
+			"minimum score %d out of range: expected %d to %d",
+			minimum, minimumScore, maximumScore,
+		)
+	}
+
 	return nil
+}
+
+// checkScore applies the --min-score gate. The default minimum is 0 and a score
+// is never negative, so an unset flag can never trip this.
+//
+// The explanation goes to stderr rather than stdout, for the same reason
+// warnings do: --json output has to stay parseable. The report says what the
+// grade is, but only the flag knows what it needed to be, so unlike
+// --fail-on-found this gate has something left to say.
+func checkScore(w io.Writer, score, minimum int) error {
+	if score >= minimum {
+		return nil
+	}
+
+	if _, err := fmt.Fprintf(w, "score %d%% is below the required minimum of %d%%\n", score, minimum); err != nil {
+		return platformerrors.Wrap(err, "reporting the score gate")
+	}
+
+	return errScoreBelowMinimum
 }
 
 // writeWarnings reports anything the analyzer noticed about the source itself.
@@ -137,9 +219,10 @@ func resolveTarget(pkg string, args []string) (dir string, patterns []string) {
 	return ".", []string{pkg}
 }
 
-// render writes the report as JSON or as the human-facing summary.
-func render(w io.Writer, report *analysis.Report, asJSON bool) error {
-	if asJSON {
+// render writes the report in the requested format.
+func render(w io.Writer, report *analysis.Report, rendering format) error {
+	switch rendering {
+	case formatJSON:
 		encoded, err := encoding.EncodeJSON(report)
 		if err != nil {
 			return platformerrors.Wrap(err, "encoding report")
@@ -148,9 +231,17 @@ func render(w io.Writer, report *analysis.Report, asJSON bool) error {
 		_, err = fmt.Fprintf(w, "%s\n", encoded)
 
 		return err
+	case formatSARIF:
+		return sarif.Render(w, sarif.Config{Report: report, Version: version.Version})
+	case formatMarkdown:
+		return renderMarkdown(w, report)
+	case formatText:
+		return renderText(w, report)
+	default:
+		// parseFormat is the only way to get a format, and it rejects anything
+		// else — so this is unreachable rather than a case worth handling.
+		return platformerrors.Wrapf(platformerrors.ErrUnrecognizedInputValue, "rendering format %s", rendering)
 	}
-
-	return renderText(w, report)
 }
 
 // renderText writes the report the way the 2017 tool did: the functions that
@@ -184,6 +275,40 @@ func renderText(w io.Writer, report *analysis.Report) error {
 
 	fmt.Fprintf(&out, "Grade: %s (%d/%d functions)\n",
 		colors.grade(report.Score()), report.Tested(), report.Declared())
+
+	_, err := io.WriteString(w, out.String())
+
+	return err
+}
+
+// renderMarkdown writes the grade as a table with one row per package.
+//
+// This is the shape a report takes when it spans a module rather than a
+// package: nobody reads two thousand functions one line at a time, but a
+// hundred packages ranked by grade says where the work is. No color is
+// involved — markdown is read after it is pasted somewhere, not in the terminal
+// that produced it.
+func renderMarkdown(w io.Writer, report *analysis.Report) error {
+	var out strings.Builder
+
+	// Numbers are right-aligned, names are not: the columns being compared
+	// down the page are the ones that should line up.
+	out.WriteString("| Package | Score | Tested | Declared |\n")
+	out.WriteString("| --- | ---: | ---: | ---: |\n")
+
+	packages := report.Packages()
+	for i := range packages {
+		pkg := &packages[i]
+
+		fmt.Fprintf(&out, "| `%s` | %d%% | %d | %d |\n", pkg.Path, pkg.Score(), pkg.Tested, pkg.Declared)
+	}
+
+	// The total is a row rather than a sentence underneath, so the table stays
+	// one thing to sort, paste, or diff.
+	fmt.Fprintf(&out, "| **Total** | **%d%%** | **%d** | **%d** |\n",
+		report.Score(), report.Tested(), report.Declared())
+
+	fmt.Fprintf(&out, "\nGraded at `%s` strictness.\n", report.Strictness)
 
 	_, err := io.WriteString(w, out.String())
 

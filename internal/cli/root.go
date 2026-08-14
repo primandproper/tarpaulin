@@ -62,11 +62,19 @@ func Execute(ctx context.Context) error {
 	return err
 }
 
-// reportExecutionError prints a failed command's error, except the one that
-// only means "the report you just read found something". It returns the failure
-// to write, if writing to stderr is itself broken.
+// isGateFailure reports whether err only means "a threshold you asked for was
+// not met". Those are not failures to describe: the command has already printed
+// everything an operator needs, and an "Error:" line underneath it would be
+// noise in every CI log.
+func isGateFailure(err error) bool {
+	return errors.Is(err, errFunctionsFound) || errors.Is(err, errScoreBelowMinimum)
+}
+
+// reportExecutionError prints a failed command's error, except the gate
+// failures above. It returns the failure to write, if writing to stderr is
+// itself broken.
 func reportExecutionError(w io.Writer, err error) error {
-	if err == nil || errors.Is(err, errFunctionsFound) {
+	if err == nil || isGateFailure(err) {
 		return nil
 	}
 

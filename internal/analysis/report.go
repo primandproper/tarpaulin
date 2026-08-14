@@ -18,6 +18,11 @@ type Function struct {
 	Package string `json:"package"`
 	File    string `json:"file"`
 	Name    string `json:"name"`
+	// PackagePath is the import path Package is the clause name of. It is what
+	// actually identifies a package — a module of any size holds several named
+	// config — and so it is what per-package grading groups on. Left out of the
+	// JSON with the rest of the renderer-only fields below.
+	PackagePath string `json:"-"`
 	// Path, EndLine, and Tested are carried on the Go value but left out of the
 	// JSON: the wire shape lists only what is missing, and it names files the
 	// way a person reads them. A caller that renders source instead — the
@@ -35,6 +40,13 @@ type Function struct {
 // Functions is sorted by file and then by declaration line, so two runs over
 // unchanged source produce byte-identical output.
 type Report struct {
+	// Root is the module root the analyzed packages live under, absolute, or
+	// empty when the target sits in no module. Like Function.Path it is carried
+	// on the Go value and left out of the JSON: a renderer that has to state
+	// where a file sits — SARIF, whose URIs are relative to a declared base —
+	// needs a root to make paths relative to, and the analyzed directory is not
+	// it. The wire shape is pinned verbatim in analysis_test.go.
+	Root       string
 	Functions  []Function
 	Warnings   []string
 	Strictness Strictness
@@ -117,12 +129,64 @@ func (r Report) Untested() []Function {
 // truncated rather than rounded: two of three is 66%, and only a genuinely
 // complete package reaches 100. A package that declares nothing scores 100.
 func (r Report) Score() int {
-	declared := r.Declared()
+	return score(r.Tested(), r.Declared())
+}
+
+// Package is one package's grade, for reports that span more than one.
+type Package struct {
+	// Path is the import path, which is the identity. Name is the package
+	// clause, which is what a person reads.
+	Path     string
+	Name     string
+	Declared int
+	Tested   int
+}
+
+// Score grades a single package on the same arithmetic as the whole report.
+func (p Package) Score() int {
+	return score(p.Tested, p.Declared)
+}
+
+// Packages groups the report by the package each function was declared in,
+// sorted by import path so two runs over unchanged source agree.
+//
+// Only packages that declared something appear: a package with nothing to grade
+// would score a meaningless 100 and pad the table it is read from.
+func (r Report) Packages() []Package {
+	indices := make(map[string]int, len(r.Functions))
+	packages := make([]Package, 0, len(r.Functions))
+
+	for i := range r.Functions {
+		fn := &r.Functions[i]
+
+		index, seen := indices[fn.PackagePath]
+		if !seen {
+			index = len(packages)
+			indices[fn.PackagePath] = index
+			packages = append(packages, Package{Path: fn.PackagePath, Name: fn.Package})
+		}
+
+		packages[index].Declared++
+		if fn.Tested {
+			packages[index].Tested++
+		}
+	}
+
+	slices.SortFunc(packages, func(a, b Package) int {
+		return cmp.Compare(a.Path, b.Path)
+	})
+
+	return packages
+}
+
+// score is the grading arithmetic, in one place so a package and the report it
+// belongs to can never disagree about what 2 of 3 is.
+func score(tested, declared int) int {
 	if declared == 0 {
 		return perfectScore
 	}
 
-	return r.Tested() * perfectScore / declared
+	return tested * perfectScore / declared
 }
 
 // sortFunctions orders functions by file, then declaration line, then name, so

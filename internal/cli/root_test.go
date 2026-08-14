@@ -34,6 +34,18 @@ func TestReportExecutionError(t *testing.T) {
 		test.Eq(t, "", out.String())
 	})
 
+	t.Run("stays quiet when a score gate tripped", func(t *testing.T) {
+		t.Parallel()
+
+		out := new(bytes.Buffer)
+
+		// --min-score has already written its one line to stderr; repeating it
+		// as an "Error:" would say the same thing twice.
+		reportExecutionError(out, errScoreBelowMinimum)
+
+		test.Eq(t, "", out.String())
+	})
+
 	t.Run("stays quiet on success", func(t *testing.T) {
 		t.Parallel()
 
@@ -43,6 +55,18 @@ func TestReportExecutionError(t *testing.T) {
 
 		test.Eq(t, "", out.String())
 	})
+}
+
+func TestIsGateFailure(t *testing.T) {
+	t.Parallel()
+
+	test.True(t, isGateFailure(errFunctionsFound))
+	test.True(t, isGateFailure(errScoreBelowMinimum))
+	// Wrapped, because the sentinels travel back up through cobra.
+	test.True(t, isGateFailure(platformerrors.Wrap(errScoreBelowMinimum, "running analyze")))
+
+	test.False(t, isGateFailure(nil))
+	test.False(t, isGateFailure(platformerrors.New("the packages could not be loaded")))
 }
 
 func TestEnvOr(t *testing.T) {

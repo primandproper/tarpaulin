@@ -57,6 +57,7 @@ func Analyze(ctx context.Context, cfg Config) (*Report, error) {
 	references := collectReferences(fset, pkgs)
 
 	report := &Report{
+		Root:       moduleRoot(absolutePath(dir)),
 		Strictness: cfg.Strictness,
 		Functions:  make([]Function, 0, len(declarations)),
 		Warnings:   renderWarnings(dir, warnings),
@@ -64,13 +65,14 @@ func Analyze(ctx context.Context, cfg Config) (*Report, error) {
 
 	for _, decl := range declarations {
 		report.Functions = append(report.Functions, Function{
-			Package: decl.pkgName,
-			File:    relativePath(dir, decl.key.Filename),
-			Path:    decl.key.Filename,
-			Name:    decl.name,
-			Line:    decl.key.Line,
-			EndLine: decl.endLine,
-			Tested:  references.satisfies(decl, cfg.Strictness),
+			Package:     decl.pkgName,
+			PackagePath: decl.pkgPath,
+			File:        relativePath(dir, decl.key.Filename),
+			Path:        decl.key.Filename,
+			Name:        decl.name,
+			Line:        decl.key.Line,
+			EndLine:     decl.endLine,
+			Tested:      references.satisfies(decl, cfg.Strictness),
 		})
 	}
 

@@ -68,6 +68,82 @@ func TestReportScore(t *testing.T) {
 // package on purpose: Report's job here is to satisfy json.Marshaler for
 // whoever holds one, and that is the contract worth pinning. The bytes are
 // produced by platform-go either way — MarshalJSON calls encoding.EncodeJSON.
+func TestPackageScore(t *testing.T) {
+	t.Parallel()
+
+	// The same arithmetic as the whole report: truncated, not rounded, and a
+	// package with nothing to grade is perfect rather than zero.
+	test.Eq(t, 66, analysis.Package{Declared: 3, Tested: 2}.Score())
+	test.Eq(t, 100, analysis.Package{Declared: 4, Tested: 4}.Score())
+	test.Eq(t, 0, analysis.Package{Declared: 4}.Score())
+	test.Eq(t, 100, analysis.Package{}.Score())
+}
+
+func TestReportPackages(t *testing.T) {
+	t.Parallel()
+
+	t.Run("groups on the import path, not the clause name", func(t *testing.T) {
+		t.Parallel()
+
+		// Two packages that are both named config, which is the ordinary case
+		// in a module of any size: platform-go has forty-eight of them.
+		report := analysis.Report{Functions: []analysis.Function{
+			{Package: "config", PackagePath: "example.com/m/audit/config", Name: "A", Tested: true},
+			{Package: "config", PackagePath: "example.com/m/analytics/config", Name: "B"},
+			{Package: "config", PackagePath: "example.com/m/analytics/config", Name: "C", Tested: true},
+		}}
+
+		packages := report.Packages()
+
+		must.SliceLen(t, 2, packages)
+		// Sorted by path, so two runs over unchanged source agree.
+		test.Eq(t, "example.com/m/analytics/config", packages[0].Path)
+		test.Eq(t, "example.com/m/audit/config", packages[1].Path)
+		// Merging these would have reported one package at 66% instead of two,
+		// and hidden which of them needs the work.
+		test.Eq(t, 50, packages[0].Score())
+		test.Eq(t, 100, packages[1].Score())
+		test.Eq(t, "config", packages[0].Name)
+	})
+
+	t.Run("counts every function against its own package", func(t *testing.T) {
+		t.Parallel()
+
+		packages := sampleReport().Packages()
+
+		must.SliceLen(t, 1, packages)
+		test.Eq(t, 3, packages[0].Declared)
+		test.Eq(t, 2, packages[0].Tested)
+		test.Eq(t, 66, packages[0].Score())
+	})
+
+	t.Run("has nothing to say about a report with no functions", func(t *testing.T) {
+		t.Parallel()
+
+		// A package that declared nothing would score a meaningless 100 and pad
+		// the table it is read from, so it never appears.
+		test.SliceEmpty(t, analysis.Report{}.Packages())
+	})
+
+	t.Run("agrees with the report it came from", func(t *testing.T) {
+		t.Parallel()
+
+		report := sampleReport()
+
+		declared, tested := 0, 0
+		for _, pkg := range report.Packages() {
+			declared += pkg.Declared
+			tested += pkg.Tested
+		}
+
+		// The per-package rows and the total are the same functions counted
+		// twice; a table whose rows do not add up to its total is worse than no
+		// table.
+		test.Eq(t, report.Declared(), declared)
+		test.Eq(t, report.Tested(), tested)
+	})
+}
+
 func TestReportMarshalJSON(t *testing.T) {
 	t.Parallel()
 

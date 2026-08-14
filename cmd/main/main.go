@@ -23,6 +23,8 @@ func main() {
 
 // run owns the signal-cancellable context so its deferred stop() runs before
 // main calls os.Exit.
+//
+//tarp:ignore -- process plumbing: a signal handler wrapped around cli.Execute, in a cmd package that `make test` excludes by design
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

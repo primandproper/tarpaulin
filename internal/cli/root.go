@@ -86,6 +86,8 @@ func reportExecutionError(w io.Writer, err error) error {
 }
 
 // newRootCommand constructs the cobra root command and registers subcommands.
+//
+//tarp:ignore -- declaration only: a test here could assert that cobra registered the flags cobra registered, and nothing else; the assembled command is driven end to end by TestExecute
 func (a *application) newRootCommand() *cobra.Command {
 	var (
 		logLevel    string
@@ -166,7 +168,10 @@ func (a *application) shutdown(ctx context.Context) {
 	defer cancel()
 
 	if err := a.pillars.Shutdown(ctx); err != nil {
-		a.logger.Error("shutting down observability suite", err)
+		// Through log() rather than the field: pillars and logger are only ever
+		// set together by bootstrap, but a flush failure is the worst possible
+		// moment to learn that assumption was wrong somewhere else.
+		a.log().Error("shutting down observability suite", err)
 	}
 }
 

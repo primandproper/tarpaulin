@@ -18,6 +18,8 @@ import (
 
 // buildLocalDevConfig is the config a developer runs against locally: structured
 // slog logging at debug so everything is visible on the console.
+//
+//tarp:ignore -- a config literal in a cmd package `make test` excludes; the compiler and the Validate that Render runs are its guardrails
 func buildLocalDevConfig() *config.Config {
 	return &config.Config{
 		Observability: observability.Config{
@@ -32,6 +34,8 @@ func buildLocalDevConfig() *config.Config {
 
 // buildProductionConfig is the config for a production deployment: the same
 // structured slog logging, dialed back to info so logs stay signal-dense.
+//
+//tarp:ignore -- a config literal in a cmd package `make test` excludes; the compiler and the Validate that Render runs are its guardrails
 func buildProductionConfig() *config.Config {
 	return &config.Config{
 		Observability: observability.Config{

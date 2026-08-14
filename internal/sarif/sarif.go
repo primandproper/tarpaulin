@@ -185,7 +185,10 @@ func untestedFunctionRule() rule {
 		ShortDescription: message{Text: "Function has no direct unit test"},
 		FullDescription: message{Text: "No TestXxx body references this function. Statement coverage " +
 			"cannot tell a function that was tested from one that was merely executed on the way to " +
-			"somebody else's assertion; this rule asks the stricter question."},
+			"somebody else's assertion; this rule asks the stricter question. It is a different " +
+			"question, not a better one: a reference is evidence that a test was written for the " +
+			"function, and says nothing about what that test asserts. Read this rule alongside " +
+			"coverage rather than instead of it."},
 		Help: message{
 			Text: "Write a test that references this function directly, or exempt it with a " +
 				"//tarp:ignore directive whose reason names the test that does the asserting.",

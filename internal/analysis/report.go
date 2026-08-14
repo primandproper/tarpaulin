@@ -10,10 +10,12 @@ import (
 // perfectScore is the grade reported for a package with nothing to grade.
 const perfectScore = 100
 
-// Function identifies a single function declaration and says whether a test
-// asserts its behavior directly. File is relative to the analyzed directory
-// when it sits underneath it, so reports are stable across machines and
-// check-outs.
+// Function identifies a single function declaration and says whether a TestXxx
+// body references it directly. That is a weaker claim than the one the tool is
+// named for: a reference is evidence that a test was written for the function,
+// not that the test asserts anything. File is relative to the analyzed
+// directory when it sits underneath it, so reports are stable across machines
+// and check-outs.
 type Function struct {
 	Package string `json:"package"`
 	File    string `json:"file"`

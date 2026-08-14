@@ -30,6 +30,8 @@ type coverOptions struct {
 
 // newCoverCommand returns the `cover` subcommand, which renders a cover profile
 // with tarp's verdict layered over it.
+//
+//tarp:ignore -- declaration only: flags and help text, driven end to end by TestCoverCommand through cobra rather than around it
 func (a *application) newCoverCommand() *cobra.Command {
 	opts := &coverOptions{}
 

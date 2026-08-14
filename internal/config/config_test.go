@@ -131,6 +131,41 @@ func TestLoadFromFile(t *testing.T) {
 	})
 }
 
+func TestNewPillars(t *testing.T) {
+	t.Parallel()
+
+	t.Run("builds all four pillars", func(t *testing.T) {
+		t.Parallel()
+
+		pillars, err := New(Options{}).NewPillars(context.Background())
+		must.NoError(t, err)
+		must.NotNil(t, pillars)
+
+		// All four, because Pillars.Shutdown walks every one of them and the
+		// application holds them for the life of the process: a nil here is a
+		// panic somewhere far away from this constructor.
+		test.NotNil(t, pillars.Logger)
+		test.NotNil(t, pillars.TracerProvider)
+		test.NotNil(t, pillars.MetricsProvider)
+		test.NotNil(t, pillars.Profiler)
+	})
+
+	t.Run("reports a logging provider it cannot build", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := New(Options{})
+		cfg.Observability.Logging.Provider = "nonsense"
+
+		// The three noop pillars cannot fail, so logging is the whole error
+		// path — and it has to be returned rather than swallowed into a
+		// half-built suite.
+		pillars, err := cfg.NewPillars(context.Background())
+
+		must.Error(t, err)
+		test.Nil(t, pillars)
+	})
+}
+
 func TestLevelFromString(t *testing.T) {
 	t.Parallel()
 

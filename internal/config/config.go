@@ -101,6 +101,8 @@ func New(opts Options) *Config {
 // this package: the application's env var prefix and a debug hook that logs each
 // value the parser applies. Because the hook uses the standard-library slog
 // default logger, these lines appear only when that logger is at debug level.
+//
+//tarp:ignore -- returns opaque platform-go functional options; there is nothing to assert about them that Load and LoadFromFile's tests do not already assert about their effect
 func envVarOptions() []platformconfig.Option {
 	return []platformconfig.Option{
 		platformconfig.WithPrefix(EnvVarPrefix),

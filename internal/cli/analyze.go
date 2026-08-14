@@ -45,6 +45,8 @@ type analyzeOptions struct {
 
 // newAnalyzeCommand returns the `analyze` subcommand, which grades a package on
 // how many of its functions carry a test of their own.
+//
+//tarp:ignore -- declaration only: flags and help text, driven end to end by TestAnalyzeCommand through cobra rather than around it
 func (a *application) newAnalyzeCommand() *cobra.Command {
 	opts := &analyzeOptions{}
 

@@ -234,6 +234,27 @@ the list at the module root is worth a look.
 - To enable real tracing/metrics/profiling, populate the sub-configs in `internal/config` and call
   `observability.Config.NewPillars`, or swap the noop constructors in `Config.NewPillars`.
 
+## Where this repo points `//tarp:ignore` at itself
+
+tarp grades itself, so the escape hatch had to be aimed inwards at some point. The line it is
+drawn on: **a function whose whole body is a declaration is ignored with a reason naming what
+drives it; a function with a branch, a guard, or a failure mode gets a test that names it.**
+
+Ignored, therefore: the cobra constructors (`newRootCommand`, `newAnalyzeCommand`,
+`newCoverCommand`, `newVersionCommand`), which declare flags and help text and are driven end to
+end through cobra by the command tests; `cmd/main.run` and the config builders in
+`cmd/tools/codegen/configs`, which sit in `cmd` packages `make test` excludes by design; and
+`envVarOptions`, which returns opaque platform-go options whose effect `Load` and `LoadFromFile`
+already assert.
+
+Tested, therefore: `Execute`, `bootstrap`, `shutdown`, `(*application).log`, and
+`Config.NewPillars`. `TestExecute` runs the real entrypoint over `os.Args` and the process's own
+streams — see the `capture` helper in `root_test.go`, which is the only place in these tests that
+cannot be handed a `bytes.Buffer`.
+
+A new ignore needs a reason of the same kind: what asserts this instead, or why nothing can. "It
+is hard to test" is not one.
+
 ## Linting
 
 - ~46 linters enabled via `.golangci.yml` (golangci-lint v2 format).

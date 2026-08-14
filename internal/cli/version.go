@@ -11,6 +11,8 @@ import (
 
 // newVersionCommand returns the `version` subcommand, which reports the build
 // metadata injected at link time along with the Go toolchain and platform.
+//
+//tarp:ignore -- declaration only: the lines it prints are asserted by TestExecute, which runs `tarp version` through the real entrypoint
 func (a *application) newVersionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",

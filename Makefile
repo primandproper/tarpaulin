@@ -10,9 +10,13 @@ CMD_PACKAGE   := $(THIS)/cmd/main
 ARTIFACTS_DIR := artifacts
 SCRIPTS_DIR   := scripts
 COVERAGE_OUT  := $(ARTIFACTS_DIR)/coverage.out
+RELEASE_DIR   := $(ARTIFACTS_DIR)/release
 
 # COMPUTED
 TOTAL_PACKAGE_LIST := `go list $(THIS)/...`
+# VERSION is the release being built. CI passes the published tag; a local
+# `make release` falls back to git so the target is runnable as a dry run.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown)
 
 # CONTAINER VERSIONS
 LINTER_IMAGE     := golangci/golangci-lint:v2.10.1
@@ -117,6 +121,14 @@ build: $(ARTIFACTS_DIR)
 .PHONY: run
 run:
 	go run $(CMD_PACKAGE) $(ARGS)
+
+# release cross-compiles the archives published on a GitHub release, so
+# consumers of the Action download a binary instead of paying `go install`
+# against platform-go's module graph. VERSION defaults to whatever git can
+# describe, which is what makes a local `make release` a useful dry run.
+.PHONY: release
+release:
+	$(SCRIPTS_DIR)/release.sh $(VERSION) $(RELEASE_DIR) $(BINARY_NAME) $(CMD_PACKAGE)
 
 .PHONY: test
 test: $(ARTIFACTS_DIR)

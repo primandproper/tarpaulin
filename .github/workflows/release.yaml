@@ -1,0 +1,57 @@
+---
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+name: release
+
+# Uploading assets onto the release that triggered this run is the only write
+# the job needs.
+permissions:
+  contents: write
+
+jobs:
+  artifacts:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.26.x']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          # build.sh reads the commit time and `git describe` from history, and
+          # a release can be cut from a tag the default shallow clone would not
+          # reach.
+          fetch-depth: 0
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      # A tag can be cut from any commit, including one no pull request ever
+      # gated. Consumers of the Action download whatever this job publishes, so
+      # the suite runs before anything is built rather than after.
+      - name: run unit tests
+        run: make test
+
+      - name: build release archives
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: make release VERSION="${TAG}"
+
+      # --clobber so a re-run after a partial upload converges instead of
+      # failing on the assets that already landed.
+      - name: upload archives to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "${TAG}" artifacts/release/* --clobber

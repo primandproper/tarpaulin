@@ -205,6 +205,31 @@ func (r Report) MarshalJSON() ([]byte, error) { ... }
 That keeps the exemption auditable: the claim is checkable by opening the named
 test, and it goes stale loudly if the test is ever deleted.
 
+#### The errors trio is reported for a different reason
+
+`Is`, `As`, and `Unwrap` are also reported when a test only ever reaches them
+through `errors.Is` or `errors.As`, and the reasoning above is *not* why. Their
+method set is statically knowable rather than found by reflection, and a test
+asserting `errors.Is(err, ErrSentinel)` is not incidentally satisfying an
+interface for somebody else's benefit — the truth of that assertion is what the
+package's own `Is` returns.
+
+They are reported anyway because the identifier in the source resolves to
+`errors.Is`, and getting from there to the method means connecting the *value*
+passed in to the type declaring it. That is dataflow, which the analyzer does
+not do. The cheap alternative — letting any `errors.Is` in a test absolve every
+`Is`/`As`/`Unwrap` in the package — over-credits in exactly the direction
+`go test -cover` already does, so the deliberate answer is to report them and
+take the directive:
+
+```go
+//tarp:ignore -- the errors walk reaches this; asserted by TestExhausted via errors.Is
+func (e *ExhaustedError) Is(target error) bool { ... }
+```
+
+`internal/analysis/testdata/errors_dispatch` pins this behaviour, and the
+decision is written next to the rule in `internal/analysis/references.go`.
+
 ### In CI
 
 There are two gates, and both are off by default:

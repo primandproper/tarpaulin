@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"errors"
 	"go/ast"
 	"os"
 	"path/filepath"
@@ -11,6 +12,64 @@ import (
 	"github.com/shoenig/test/must"
 	"golang.org/x/tools/go/packages"
 )
+
+func TestLoadPackages(t *testing.T) {
+	t.Parallel()
+
+	simple := filepath.Join("testdata", "simple")
+
+	t.Run("keeps every real variant and drops the synthesized one", func(t *testing.T) {
+		t.Parallel()
+
+		pkgs, fset, err := loadPackages(t.Context(), simple, []string{defaultPattern})
+		must.NoError(t, err)
+		must.NotNil(t, fset)
+
+		// The source variant and the test variant, both under the same import
+		// path. The <pkg>.test main the toolchain synthesizes references every
+		// TestXxx in the package, so leaving it in would credit every test
+		// function to itself.
+		must.SliceLen(t, 2, pkgs)
+
+		for _, pkg := range pkgs {
+			test.StrHasSuffix(t, "analysis/testdata/simple", pkg.PkgPath)
+			test.SliceNotEmpty(t, pkg.Syntax, test.Sprintf("%s was loaded without syntax", pkg.PkgPath))
+		}
+	})
+
+	t.Run("refuses a directory with no Go files in it", func(t *testing.T) {
+		t.Parallel()
+
+		// go/packages happily returns a package for one, which would read as a
+		// perfect score.
+		_, _, err := loadPackages(t.Context(), filepath.Join("testdata", "no_go_files"), []string{defaultPattern})
+
+		must.ErrorIs(t, err, ErrNoGoFiles)
+	})
+
+	t.Run("refuses source that does not type check", func(t *testing.T) {
+		t.Parallel()
+
+		// A reference set gathered from source the type checker rejected is not
+		// trustworthy, and grading it anyway would be worse than refusing.
+		_, _, err := loadPackages(t.Context(), filepath.Join("testdata", "broken_package"), []string{defaultPattern})
+
+		diagnostic := new(DiagnosticError)
+		must.True(t, errors.As(err, &diagnostic), must.Sprintf("expected a diagnostic error, got %v", err))
+		test.SliceNotEmpty(t, diagnostic.Diagnostics)
+	})
+
+	t.Run("names the missing go.mod rather than quoting the go command", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		must.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n\nfunc A() {}\n"), 0o600))
+
+		_, _, err := loadPackages(t.Context(), dir, []string{defaultPattern})
+
+		must.ErrorIs(t, err, ErrNotInModule)
+	})
+}
 
 func TestDiagnosticErrorError(t *testing.T) {
 	t.Parallel()

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
@@ -328,6 +329,147 @@ func TestRender(t *testing.T) {
 		must.NoError(t, render(out, &analysis.Report{}, formatText))
 
 		test.Eq(t, "Grade: 100% (0/0 functions)\n", out.String())
+	})
+}
+
+func TestRenderText(t *testing.T) {
+	t.Parallel()
+
+	t.Run("aligns names into a column measured in runes", func(t *testing.T) {
+		t.Parallel()
+
+		out := new(bytes.Buffer)
+
+		must.NoError(t, renderText(out, &analysis.Report{Functions: []analysis.Function{
+			{File: "a.go", Name: "Tested", Line: 1, Tested: true},
+			{File: "a.go", Name: "Ünïcödé", Line: 3},
+			{File: "a.go", Name: "Sh", Line: 5},
+		}}))
+
+		// The column is seven wide because the widest name is seven runes, not
+		// the eleven bytes it takes to write them.
+		test.Eq(t, "Functions without direct unit tests:\n"+
+			"in a.go:\n"+
+			"\tÜnïcödé on line 3\n"+
+			"\t     Sh on line 5\n"+
+			"\nGrade: 33% (1/3 functions)\n", out.String())
+	})
+
+	t.Run("announces a file once, however many functions it holds", func(t *testing.T) {
+		t.Parallel()
+
+		out := new(bytes.Buffer)
+
+		must.NoError(t, renderText(out, &analysis.Report{Functions: []analysis.Function{
+			{File: "a.go", Name: "One", Line: 3},
+			{File: "a.go", Name: "Two", Line: 5},
+			{File: "b.go", Name: "Three", Line: 7},
+		}}))
+
+		test.Eq(t, 1, strings.Count(out.String(), "in a.go:"))
+		test.Eq(t, 1, strings.Count(out.String(), "in b.go:"))
+	})
+
+	t.Run("leaves escape codes out of a destination that is not a terminal", func(t *testing.T) {
+		t.Parallel()
+
+		out := new(bytes.Buffer)
+
+		// This is the whole reason the palette is decided from the writer: the
+		// file headers and the grade are the two painted runs, and a buffer —
+		// a pipe, a file, a CI log — gets neither.
+		must.NoError(t, renderText(out, &analysis.Report{Functions: []analysis.Function{
+			{File: "a.go", Name: "One", Line: 3},
+		}}))
+
+		test.StrNotContains(t, out.String(), "\033[")
+	})
+
+	t.Run("surfaces a broken writer", func(t *testing.T) {
+		t.Parallel()
+
+		// The report is built in memory and written once, so a failing
+		// destination is reported rather than left half-printed.
+		test.ErrorIs(t, renderText(brokenWriter{}, &analysis.Report{}), errBrokenWriter)
+	})
+}
+
+func TestRenderMarkdown(t *testing.T) {
+	t.Parallel()
+
+	t.Run("grades each package on its own functions", func(t *testing.T) {
+		t.Parallel()
+
+		out := new(bytes.Buffer)
+
+		must.NoError(t, renderMarkdown(out, &analysis.Report{
+			Strictness: analysis.StrictnessAny,
+			Functions: []analysis.Function{
+				{PackagePath: "example.com/m/thirds", File: "t.go", Name: "One", Line: 3, Tested: true},
+				{PackagePath: "example.com/m/thirds", File: "t.go", Name: "Two", Line: 5, Tested: true},
+				{PackagePath: "example.com/m/thirds", File: "t.go", Name: "Three", Line: 7},
+				{PackagePath: "example.com/m/done", File: "d.go", Name: "Four", Line: 3, Tested: true},
+			},
+		}))
+
+		// Every row is truncated the way the total is, so a package two thirds
+		// of the way there never reads as 67% while the module reads as 66%.
+		test.Eq(t, "| Package | Score | Tested | Declared |\n"+
+			"| --- | ---: | ---: | ---: |\n"+
+			"| `example.com/m/done` | 100% | 1 | 1 |\n"+
+			"| `example.com/m/thirds` | 66% | 2 | 3 |\n"+
+			"| **Total** | **75%** | **3** | **4** |\n"+
+			"\nGraded at `any` strictness.\n", out.String())
+	})
+
+	t.Run("names the strictness the report was graded at", func(t *testing.T) {
+		t.Parallel()
+
+		out := new(bytes.Buffer)
+
+		// A table gets pasted somewhere the command line that produced it is
+		// not, so the dial it was measured on travels with it.
+		must.NoError(t, renderMarkdown(out, &analysis.Report{Strictness: analysis.StrictnessPackage}))
+
+		test.StrHasSuffix(t, "\nGraded at `package` strictness.\n", out.String())
+	})
+
+	t.Run("surfaces a broken writer", func(t *testing.T) {
+		t.Parallel()
+
+		test.ErrorIs(t, renderMarkdown(brokenWriter{}, &analysis.Report{}), errBrokenWriter)
+	})
+}
+
+func TestWriteWarnings(t *testing.T) {
+	t.Parallel()
+
+	t.Run("writes one warning per line", func(t *testing.T) {
+		t.Parallel()
+
+		out := new(bytes.Buffer)
+
+		must.NoError(t, writeWarnings(out, []string{"first", "second"}))
+		test.Eq(t, "first\nsecond\n", out.String())
+	})
+
+	t.Run("writes nothing when there is nothing to warn about", func(t *testing.T) {
+		t.Parallel()
+
+		out := new(bytes.Buffer)
+
+		must.NoError(t, writeWarnings(out, nil))
+		must.NoError(t, writeWarnings(out, []string{}))
+		test.Eq(t, "", out.String())
+	})
+
+	t.Run("surfaces a broken writer", func(t *testing.T) {
+		t.Parallel()
+
+		err := writeWarnings(brokenWriter{}, []string{"first"})
+
+		test.ErrorIs(t, err, errBrokenWriter)
+		test.StrContains(t, err.Error(), "writing warnings")
 	})
 }
 

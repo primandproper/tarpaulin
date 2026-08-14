@@ -1,6 +1,7 @@
 package coverage
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
@@ -152,6 +153,118 @@ func TestBoundaries(t *testing.T) {
 		t.Parallel()
 
 		test.SliceEmpty(t, boundaries(src, nil))
+	})
+}
+
+func TestWriteBoundary(t *testing.T) {
+	t.Parallel()
+
+	// One block inside each of twoFunctions, and one that falls between them.
+	blocks := []cover.ProfileBlock{
+		{StartLine: 4, StartCol: 2, EndLine: 4, EndCol: 10, Count: 2},
+		{StartLine: 8, StartCol: 2, EndLine: 8, EndCol: 10, Count: 1},
+		{StartLine: 6, StartCol: 1, EndLine: 6, EndCol: 2, Count: 1},
+	}
+
+	t.Run("closes a span without consulting anything", func(t *testing.T) {
+		t.Parallel()
+
+		var out strings.Builder
+
+		// A closing boundary carries no block index worth trusting, so it must
+		// not reach for one.
+		writeBoundary(&out, boundary{offset: 12}, nil, nil)
+
+		test.Eq(t, "</span>", out.String())
+	})
+
+	t.Run("opens a span colored by the function the block falls inside", func(t *testing.T) {
+		t.Parallel()
+
+		var out strings.Builder
+
+		writeBoundary(&out, boundary{offset: 12, block: 0, start: true}, blocks, twoFunctions)
+
+		test.Eq(t, `<span class="tarp-direct" title="ran 2 times; A is directly tested">`, out.String())
+	})
+
+	t.Run("distinguishes a function that merely ran", func(t *testing.T) {
+		t.Parallel()
+
+		var out strings.Builder
+
+		writeBoundary(&out, boundary{offset: 30, block: 1, start: true}, blocks, twoFunctions)
+
+		test.Eq(t, `<span class="tarp-indirect" title="ran once; B has no direct test">`, out.String())
+	})
+
+	t.Run("greys out a block belonging to no graded function", func(t *testing.T) {
+		t.Parallel()
+
+		var out strings.Builder
+
+		writeBoundary(&out, boundary{offset: 24, block: 2, start: true}, blocks, twoFunctions)
+
+		test.Eq(t, `<span class="tarp-ungraded" title="ran once; not graded">`, out.String())
+	})
+
+	t.Run("escapes the title", func(t *testing.T) {
+		t.Parallel()
+
+		var out strings.Builder
+
+		// The title is an attribute value built from a name the analyzer read
+		// out of somebody else's source, so it is escaped rather than trusted.
+		writeBoundary(&out, boundary{block: 0, start: true}, blocks,
+			[]analysis.Function{{Name: `<"a">`, Line: 4, EndLine: 4}})
+
+		test.Eq(t, `<span class="tarp-indirect" title="ran 2 times; &lt;&#34;a&#34;&gt; has no direct test">`, out.String())
+	})
+}
+
+func TestWriteSourceByte(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]struct {
+		expected string
+		b        byte
+	}{
+		"a less-than":         {b: '<', expected: "&lt;"},
+		"a greater-than":      {b: '>', expected: "&gt;"},
+		"an ampersand":        {b: '&', expected: "&amp;"},
+		"a double quote":      {b: '"', expected: "&#34;"},
+		"a single quote":      {b: '\'', expected: "&#39;"},
+		"a tab":               {b: '\t', expected: "        "},
+		"an ordinary byte":    {b: 'x', expected: "x"},
+		"a newline":           {b: '\n', expected: "\n"},
+		"a UTF-8 lead byte":   {b: 0xC3, expected: "\xC3"},
+		"a continuation byte": {b: 0xA9, expected: "\xA9"},
+	}
+
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var out strings.Builder
+
+			writeSourceByte(&out, testCase.b)
+
+			test.Eq(t, testCase.expected, out.String())
+		})
+	}
+
+	t.Run("leaves a multi-byte rune intact", func(t *testing.T) {
+		t.Parallel()
+
+		var out strings.Builder
+
+		// The walk is byte by byte, so a rune only survives if every byte of it
+		// passes through untouched.
+		for _, b := range []byte("é") {
+			writeSourceByte(&out, b)
+		}
+
+		test.Eq(t, "é", out.String())
 	})
 }
 

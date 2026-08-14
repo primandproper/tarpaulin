@@ -5,11 +5,14 @@ session can pick up without re-deriving anything. Last updated 2026-08-13, on
 branch `build-tarp-analyzer`.
 
 **Summary:** every piece of PRD scope is built and green — the analyzer, the
-corpus, `analyze`, and `cover --html`. The GitHub Action and SARIF were deferred
-by the PRD itself. The three known limitations that were awaiting a decision have
-all been settled (§1), and the two follow-ups worth building — the §3.3 fixture
-and the §3.6 benchmark — are built (§3). What is genuinely left is our own grade
-(§2) and two follow-ups deliberately left alone.
+corpus, `analyze`, and `cover --html`. **Both §8 deferrals are now built too**:
+the GitHub Action (`action.yml`), its release pipeline, and SARIF output
+(`internal/sarif`, `--format=sarif`). The three known limitations that were
+awaiting a decision have all been settled (§1), and the two follow-ups worth
+building — the §3.3 fixture and the §3.6 benchmark — are built (§3). What is
+genuinely left is our own grade (§2), two follow-ups deliberately left alone,
+and one thing that cannot be tested until a release exists: the action's install
+step, whose `version:` default still points at a tag nobody has published.
 
 ---
 
@@ -21,6 +24,7 @@ and the §3.6 benchmark — are built (§3). What is genuinely left is our own g
 | §9.1 `var Foo = func(){}` | **Not** a declaration | `testdata/func_var` |
 | §9.2 Ignore directive reason | **Required**; a bare `//tarp:ignore` exempts nothing and warns on stderr | `testdata/ignore_directive`, `TestIgnoreDirective` |
 | §9.4 Per-package strictness | Not built; the global flag plus the ignore directive is sufficient | — |
+| §9.3 SARIF and the Action's shape | Both settled: composite action shipped, SARIF emitted as an output format but never as the architecture | `action.yml`, `internal/sarif`, §8 below |
 | §3.1 (unstated) `TestMain` | A harness, not a test: it credits nothing below `--strictness=any` | `testdata/test_main`, `TestIsTestFunc` |
 | Score arithmetic (unstated) | Truncated, not rounded — 2 of 3 is 66% | `TestReportScore` |
 | Module requirement (unstated) | Module mode only; a target with no `go.mod` above it is refused by name rather than by the go command's symptom | `ErrNotInModule`, `TestCheckModule`, `TestModuleRoot` |
@@ -84,10 +88,36 @@ expectations — it is picked up automatically.
 | Piece | Status |
 |---|---|
 | `analyze` with `--package`, `--strictness`, `--fail-on-found`, `--json` | **Done** |
+| `analyze --min-score N` (not in the PRD; built for the Action, see §8) | **Done** |
+| `analyze --format text\|json\|sarif\|markdown` (`--json` is now its shorthand, see §8) | **Done** |
+| `Report.Packages()` per-package grading, and `--format=markdown` over it (not in the PRD) | **Done** |
 | Ignore directive | **Done**, reason required |
 | `NO_COLOR` / non-TTY handling | **Done** |
 | Deterministic ordering | **Done** |
 | `cover --html` | **Done** — see below |
+
+### Per-package grading (unstated by the PRD)
+
+`Report.Packages()` groups the report by the package each function was declared
+in; `--format=markdown` renders it as a table with a total row. Built for
+pointing tarp at a whole module — the function list stops being readable around
+the second page, and 282 rows say where the work is.
+
+**Grouping is on the import path, never the package clause name.** This is the
+part worth not relitigating: `Function.Package` has always been `pkg.Name`, and
+platform-go holds 48 packages named `config`, 27 named `noop`, and 12 named
+`migrations`. Grouping on the name would have merged 111 of its 281 rows into
+each other. `Function.PackagePath` was added (`json:"-"`, like `Path` and
+`EndLine` before it) and is what `Packages()` keys on.
+
+The same bug was live in the SARIF fingerprints, which qualified on
+`fn.Package` — every `config.New` across those 48 packages shared one
+fingerprint, so dismissing one would have dismissed them all. `sarif.qualify`
+now prefers the path.
+
+The grading arithmetic moved into one unexported `score(tested, declared)` so a
+package and the report it belongs to cannot disagree about what 2 of 3 is, and
+a test asserts the rows sum to the total.
 
 ## §7 Repo setup
 
@@ -96,10 +126,102 @@ it. The template was already on `shoenig/test`, so §7's testify swap was a
 no-op; `depguard` now carries platform-go's ban list verbatim so it cannot drift
 back. Nothing from the old implementation was ported.
 
-## §8 Deferred by the PRD
+## §8 Deferred by the PRD — both are now built
 
-GitHub Action and SARIF. Untouched, as intended. SARIF is still the open design
-question that should be settled before the Action is built.
+`action.yml` lives at the repository root, so consumers write
+`uses: primandproper/tarpaulin@v1` and the action can never skew from the binary
+it runs. It is copy-pasteable to a separate `tarp-action` repo unchanged if that
+is ever wanted — the download URL names `primandproper/tarpaulin` either way.
+
+Five composite steps: install (OS/arch mapping, checksum-verified download),
+run, annotate, summarize, exit. The shape, settled 2026-08-13:
+
+- **A composite action, not Docker** — a container costs a pull per job and pins
+  consumers to Linux runners.
+- **Workflow-command annotations are the default; SARIF is opt-in.**
+  `::warning file=…,line=…` needs no entitlement and no `security-events: write`,
+  and `untested[]` already carries `package`, `file`, `line`, `name`. SARIF ships
+  alongside it behind `sarif_output` rather than replacing it — see below for
+  why that inversion is deliberate.
+- **Thresholds belong in `tarp`, not in the action's shell.** Hence
+  `--min-score` (§6): CLI users get it too, the exit-code semantics stay one
+  decision in one place next to `--fail-on-found`, and the action stays a thin
+  shim rather than a pile of `jq` in YAML that nothing tests.
+
+**The release workflow is built** — `.github/workflows/release.yaml` on
+`release: [published]`, `scripts/release.sh`, `make release`. Six targets
+(linux/darwin/windows × amd64/arm64) cross-compiled with CGO off from one
+runner, each archive holding the binary plus `LICENSE` and `README.md`, with a
+SHA-256 `checksums.txt` over exactly that run's output. The suite runs before
+anything is built, because a tag can be cut from a commit no pull request
+gated. Asset names use the tag verbatim, so the action interpolates its
+`version:` input without reproducing any transformation. `version.Version` was
+added at the same time and is injected from the tag: the action pins a release,
+and a bug report cites one, so neither wants a commit hash.
+
+Both known traps are handled. `Function.File` is relative to the *analyzed*
+directory, and an annotation GitHub cannot resolve from the repository root is
+one it drops without saying so — the run step recomputes the prefix using the
+CLI's own two rules and prepends it. The `version:` input is pinned rather than
+floating.
+
+Three further decisions taken while building it:
+
+- **Annotations stay `warning` even when a gate fails.** Errors would paint
+  every untested function in the Files Changed view, including ones the pull
+  request never touched. The exit code fails the build; the annotations inform.
+- **`max_annotations` defaults to 10**, which is what GitHub renders per step.
+  The truncation is logged as a notice and the summary carries the full list —
+  a silent cap would read as "we looked at everything" when it did not.
+- **A gate failure and a real failure are distinguished by the report.** The run
+  step captures tarp's exit code rather than dying on it, then checks whether
+  parseable JSON came out: a gate leaves a complete report behind, a broken
+  package or a bad flag does not. Only the latter aborts before annotating.
+
+**Verified by simulating all five steps locally** against real reports — path
+rebasing from a subdirectory, the whole-repo case, `--min-score` and
+`--fail-on-found` gates, a clean pass, and a broken package. Every `run:` block
+passes shellcheck. What is *not* verified is the install step, which cannot run
+until a release exists: `version:` still defaults to `v0.1.0` and must be
+bumped to whatever the first published tag actually is.
+
+**SARIF is built** — `internal/sarif`, `--format=sarif`, and the action's
+`sarif_output` input. The §9.3 open question is closed: **emit it, but not as
+the architecture.**
+
+The reasoning, because it inverts what the PRD assumed. §8 expected SARIF to
+make the Action a thin `upload-sarif` wrapper. It cannot, for three reasons:
+
+- **Uploading into code scanning is entitled** — free on public repos, GitHub
+  Advanced Security on private ones — so a SARIF-only action would be useless
+  to most private consumers. *Emitting* SARIF is unentitled, and that is the
+  half worth having. (Verify the licensing before leaning on it; it moves.)
+- **SARIF carries findings, not scores.** There is no field for a grade, so
+  `--min-score` and the gate stay exactly where they are regardless. The score
+  rides in the run's property bag.
+- **Its dismissal model competes with `//tarp:ignore`.** A click-to-dismiss with
+  no reason and no diff is the opposite of a directive that requires one and is
+  reviewed. `sarif-tools diff` gives the same baselining without that, which is
+  why the format is worth emitting and the Security tab is not worth designing
+  around.
+
+What SARIF does buy, and the JSON cannot: locations stated against `%SRCROOT%`
+(the module root, so a subdirectory analysis still resolves correctly — this is
+the trap the action had to solve with `cd`/`pwd` string surgery), and
+`partialFingerprints` keyed on the qualified function name rather than its
+position, so a declaration moving down the file is the same finding.
+
+`Report.Root` was added to carry the module root out of the analyzer, `json:"-"`
+like `Function.Path` before it and for the same kind of reason.
+
+**Validated against the published SARIF 2.1.0 schema** with `check-jsonschema`
+— the simple fixture, a fixture with warnings, and this whole repository.
+
+`--format` replaced the `asJSON` bool that `render` took. Adding `--sarif` as a
+second mutually-exclusive bool was the shape that rots; nothing was released
+yet, so this was the cheapest it would ever be. `--json` survives as a shorthand
+because `tarp analyze --json | jq` is muscle memory, and a `--json` that
+contradicts an explicit `--format` is refused rather than silently resolved.
 
 ---
 
@@ -162,10 +284,10 @@ the next person to hit it should find why it went the way it did.
   each shape), in `cover --help`, in both `--package` usage strings, on
   `resolveTarget`, and in the README's "Choosing what to analyze" table.
 
-## 2. Our own grade: 62% (54/86)
+## 2. Our own grade: 68% (68/100)
 
 Not a defect — the PRD says to expect a mediocre grade and not to soften
-defaults. The gap barely moves at looser strictness (62/62/65%), so it is
+defaults. The gap barely moves at looser strictness, so it is
 genuinely missing tests rather than tests filed in the wrong place. The 32
 untested split: 12 in `analysis`, 12 in `cli`, 3 in `coverage`
 (`buildPage`, `writeBoundary`, `writeSourceByte` — each exercised through

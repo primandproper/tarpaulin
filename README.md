@@ -65,7 +65,8 @@ make build                  # compile everything, produce artifacts/tarp
 
 ```
 tarp analyze [packages] [--package=.] [--strictness=file|package|any]
-                        [--fail-on-found] [--json]
+                        [--fail-on-found] [--min-score=N]
+                        [--format=text|json|sarif|markdown]
 tarp cover --html=<profile> [packages] [--package=.] [--output=<file>]
                             [--strictness=file|package|any]
 ```
@@ -75,7 +76,9 @@ tarp cover --html=<profile> [packages] [--package=.] [--output=<file>]
 | `--package`, `-p` | `.`     | A directory (expanded to `./...` beneath it) or a go/packages pattern — see below |
 | `--strictness`    | `file`  | How close a reference has to be to count — see below                     |
 | `--fail-on-found` | `false` | Exit non-zero when anything is reported, without printing an error line   |
-| `--json`          | `false` | Emit the report as JSON on stdout; warnings still go to stderr           |
+| `--min-score`, `-m` | `0`   | Exit non-zero when the grade falls below this percentage (0 to 100; `0` never fails) |
+| `--format`, `-f`  | `text`  | `text`, `json`, `sarif`, or `markdown` — see below. Warnings always go to stderr |
+| `--json`, `-j`    | `false` | Shorthand for `--format=json`                                            |
 | `--html`          | —       | `cover` only: the profile from `go test -coverprofile` to render          |
 | `--output`, `-o`  | stdout  | `cover` only: write the report to this file instead                       |
 
@@ -170,12 +173,33 @@ test, and it goes stale loudly if the test is ever deleted.
 
 ### In CI
 
+There are two gates, and both are off by default:
+
 ```bash
-tarp analyze --package ./... --fail-on-found
+tarp analyze --package ./... --fail-on-found   # nothing may be reported
+tarp analyze --package ./... --min-score 50    # the grade may not fall below 50%
 ```
 
 `--fail-on-found` exits 1 having already printed the report, with no `Error:`
-line stapled underneath it. `--json` gives a stable shape to parse:
+line stapled underneath it.
+
+`--min-score` is the gate to reach for on an existing codebase, where demanding
+a clean report on day one means turning the check off again by Friday. It exits
+1 the same way, and adds one line on **stderr** saying what the grade was
+measured against — the report says `Grade: 44%`, but only the flag knows that 50
+was required:
+
+```
+score 44% is below the required minimum of 50%
+```
+
+A minimum outside 0–100 is rejected before any package is loaded, so a typo
+costs a CI runner nothing and does not become a build that fails forever for no
+visible reason. `--fail-on-found` is the strictly stronger gate — a score below
+any minimum implies something was reported — so when both are set and both trip,
+it wins and the score line is left unsaid.
+
+`--json` gives a stable shape to parse, on stdout, unaffected by either gate:
 
 ```json
 {
@@ -191,6 +215,69 @@ line stapled underneath it. `--json` gives a stable shape to parse:
 Output is deterministic — sorted by file, then declaration line — and color is
 dropped when stdout is not a terminal, when `NO_COLOR` is set, or when
 `TERM=dumb`.
+
+### Grading a whole module
+
+The default output lists functions, which stops being readable somewhere around
+the second page. `--format markdown` grades one row per package instead:
+
+```bash
+tarp analyze --package ../platform-go --format markdown
+```
+
+```markdown
+| Package | Score | Tested | Declared |
+| --- | ---: | ---: | ---: |
+| `github.com/primandproper/platform-go/v10/analytics/config` | 84% | 11 | 13 |
+| `github.com/primandproper/platform-go/v10/analytics/noop` | 100% | 5 | 5 |
+| `github.com/primandproper/platform-go/v10/audit` | 55% | 43 | 77 |
+| **Total** | **61%** | **2684** | **4371** |
+
+Graded at `file` strictness.
+```
+
+Rows are sorted by import path and always add up to the total. **The import
+path is the identity, not the package clause** — platform-go has 48 packages
+named `config` and 27 named `noop`, so grouping on the name would collapse 111
+of its 281 rows into each other and hide which one needs the work.
+
+Paste it into a pull request, a `$GITHUB_STEP_SUMMARY`, or a README.
+
+### SARIF
+
+```bash
+tarp analyze --package ./... --format sarif > tarp.sarif
+```
+
+SARIF is the interchange format for static analysis findings — what SARIF
+viewers, GitHub code scanning, Jenkins' Warnings NG, SonarQube, and the
+`sarif-tools` CLI all read. Each untested function becomes one result under the
+rule `tarp/untested-function`.
+
+Emitting it needs no entitlement. Only *uploading* it into GitHub code scanning
+does, which is why it is an output format rather than something the Action
+presumes. Plenty of consumers never touch GitHub with it:
+
+| Consumer | What you get |
+| --- | --- |
+| VS Code's SARIF Viewer | Click through findings in the Problems pane |
+| `sarif-tools diff` | Baseline a legacy codebase; see only what is new |
+| `sarif-fmt` | Readable terminal output |
+| Jenkins Warnings NG / SonarQube | Native ingest |
+| `actions/upload-artifact` | Just download the file |
+
+Two things it does that the JSON cannot:
+
+- **Locations are stated against a declared base.** `%SRCROOT%` is the module
+  root, so a document produced on a runner resolves correctly on a laptop — and
+  paths are right even when a subdirectory was analyzed.
+- **Findings carry a fingerprint keyed on the function's name, not its
+  position**, so a declaration moving down the file is the same finding rather
+  than a new one. That is what lets a consumer dismiss something and have it
+  stay dismissed.
+
+SARIF carries findings, not scores, so the grade rides in the run's property
+bag. `--min-score` is unaffected by the format and remains how a build fails.
 
 ### The coverage view
 
@@ -251,7 +338,108 @@ make lint       # golangci-lint (Docker) + shellcheck (Docker)
 make test       # go test -shuffle -race -vet=all -failfast (excludes cmd)
 make bench      # benchmarks; a run is ~99.9% go/packages loading (see PRD_STATUS.md)
 make build      # compile all packages + build the binary with version metadata
+make release    # cross-compile the release archives into artifacts/release
 ```
+
+## GitHub Action
+
+```yaml
+- name: Check tarp coverage
+  uses: primandproper/tarpaulin@v1
+  with:
+    strictness: file
+    failure_score_threshold: 50
+```
+
+It downloads a prebuilt binary for the runner (verifying its checksum), runs
+`tarp analyze --json`, annotates the untested functions inline on the pull
+request, writes the report to the job summary, and exits with tarp's own code.
+
+| Input                     | Default | Meaning                                                          |
+| ------------------------- | ------- | ---------------------------------------------------------------- |
+| `version`                 | pinned  | Which tarp release to run                                         |
+| `package`                 | `./...` | A directory or a go/packages pattern, same two rules as the CLI   |
+| `strictness`              | `file`  | `file`, `package`, or `any`                                       |
+| `failure_score_threshold` | `0`     | Fail when the grade drops below this percentage; `0` never fails  |
+| `fail_on_found`           | `false` | Fail when anything at all is reported; strictly stronger          |
+| `working-directory`       | `.`     | Where to run tarp from                                            |
+| `annotate`                | `true`  | Emit inline annotations                                           |
+| `max_annotations`         | `10`    | GitHub renders at most 10 warnings per step; see below            |
+| `summary`                 | `true`  | Write the report to the job summary                               |
+| `sarif_output`            | —       | Also write a SARIF document to this path; you decide what to do with it |
+
+Outputs `score`, `declared`, `tested`, `untested_count`, and `report` (the path
+to the raw JSON), so later steps can use the numbers:
+
+```yaml
+- id: tarp
+  uses: primandproper/tarpaulin@v1
+- run: echo "graded ${{ steps.tarp.outputs.score }}%"
+```
+
+Three things worth knowing:
+
+- **`version` is pinned, not floating.** A stricter analyzer arriving on its own
+  would break a consumer's CI on a day they changed nothing.
+- **Annotations stay warnings even when the build fails.** Promoting them to
+  errors paints every untested function in the Files Changed view, including the
+  ones the pull request never touched. The gate is what fails the build.
+- **Only the first 10 are annotated**, because that is what GitHub renders per
+  step. The rest are not dropped quietly: the count is logged as a notice, and
+  the job summary always carries the full list.
+
+### SARIF from the Action
+
+`sarif_output` writes the document and stops there — what happens to it is
+yours to decide, because uploading into code scanning needs an entitlement this
+action does not assume. Keep it as an artifact:
+
+```yaml
+- id: tarp
+  uses: primandproper/tarpaulin@v1
+  with:
+    sarif_output: tarp.sarif
+- uses: actions/upload-artifact@v4
+  if: always()
+  with:
+    name: tarp-sarif
+    path: ${{ steps.tarp.outputs.sarif }}
+```
+
+Or, if your repository has code scanning — public repos, or private ones with
+GitHub Advanced Security — send it to the Security tab instead:
+
+```yaml
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: ${{ steps.tarp.outputs.sarif }}
+```
+
+Both need `if: always()`, or a tripped gate skips the upload on exactly the runs
+worth uploading. Asking for SARIF costs a second analysis pass, so it is off by
+default.
+
+## Releases
+
+Publishing a GitHub release triggers `.github/workflows/release.yaml`, which
+runs the test suite, cross-compiles six targets, and uploads them to the release
+it was triggered by:
+
+```
+tarp_<tag>_{linux,darwin,windows}_{amd64,arm64}.{tar.gz,zip}
+checksums.txt
+```
+
+Each archive holds the binary, `LICENSE`, and `README.md`, flat. The tag is used
+**verbatim** in the asset name — no leading `v` is stripped — so a consumer can
+interpolate a version straight into the URL without reproducing a transformation
+here. `checksums.txt` is SHA-256 over exactly the archives that run produced.
+
+`make release` runs the same script locally as a dry run, defaulting `VERSION`
+to `git describe`; pass `VERSION=v1.2.0` to pin it. The binary knows which
+release it is — `tarp version` reports it, injected at link time alongside the
+commit metadata.
 
 ## Layout
 

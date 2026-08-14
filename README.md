@@ -379,7 +379,7 @@ make release    # cross-compile the release archives into artifacts/release
 
 ```yaml
 - name: Check tarp coverage
-  uses: primandproper/tarpaulin@v1
+  uses: primandproper/tarpaulin@v0.1.0
   with:
     strictness: file
     failure_score_threshold: 50
@@ -407,7 +407,7 @@ to the raw JSON), so later steps can use the numbers:
 
 ```yaml
 - id: tarp
-  uses: primandproper/tarpaulin@v1
+  uses: primandproper/tarpaulin@v0.1.0
 - run: echo "graded ${{ steps.tarp.outputs.score }}%"
 ```
 
@@ -430,7 +430,7 @@ action does not assume. Keep it as an artifact:
 
 ```yaml
 - id: tarp
-  uses: primandproper/tarpaulin@v1
+  uses: primandproper/tarpaulin@v0.1.0
   with:
     sarif_output: tarp.sarif
 - uses: actions/upload-artifact@v4

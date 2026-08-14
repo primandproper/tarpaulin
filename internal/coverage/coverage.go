@@ -34,7 +34,9 @@ const percent = 100
 type Config struct {
 	// Report is the analysis of the same packages the profile covers. Its
 	// verdicts are what separates green from yellow; a file the report says
-	// nothing about is rendered, but grey.
+	// nothing about is rendered, but grey. Its file list also resolves the
+	// profile's package-relative names to sources, sparing a second load of
+	// packages this one has already read.
 	Report *analysis.Report
 	// Dir is the directory the profile's package paths are resolved against.
 	// Empty means the current working directory.
@@ -59,7 +61,7 @@ func Render(ctx context.Context, w io.Writer, cfg Config) error {
 		dir = "."
 	}
 
-	sources, err := resolveSources(ctx, dir, profiles)
+	sources, err := resolveSources(ctx, dir, cfg.Report, profiles)
 	if err != nil {
 		return err
 	}

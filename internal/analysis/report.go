@@ -46,8 +46,21 @@ type Report struct {
 	// where a file sits — SARIF, whose URIs are relative to a declared base —
 	// needs a root to make paths relative to, and the analyzed directory is not
 	// it. The wire shape is pinned verbatim in analysis_test.go.
-	Root       string
-	Functions  []Function
+	Root      string
+	Functions []Function
+	// Sources is every file the load behind this report read, keyed by the
+	// import path of the package that named it and sorted within each package.
+	// The paths are absolute, as go/packages reports them. Carried on the Go
+	// value and left out of the JSON for the same reason as Root: it exists for
+	// a renderer that has to open the source rather than describe it.
+	//
+	// An analysis is ~99.9% package loading, so the one thing worth handing a
+	// caller is the loading it would otherwise repeat. The coverage view has to
+	// turn the package-relative names in a cover profile into files it can read,
+	// which is a question this list already answers. Keyed rather than a slice
+	// of pairs so the field costs one word: Report is passed by value to its own
+	// methods, and gocritic holds it to a size.
+	Sources    map[string][]string
 	Warnings   []string
 	Strictness Strictness
 }

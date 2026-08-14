@@ -195,6 +195,15 @@ linters:
       - linters:
           - gocritic
         text: 'captLocal: `T'' should not be capitalized'
+      # Report's methods take it by value on purpose: MarshalJSON has to be
+      # reachable from a Report as well as a *Report, or handing a value to
+      # encoding/json silently emits the raw struct instead of the documented
+      # wire shape, and a type does not get to mix its receivers. hugeParam
+      # stays enabled everywhere else.
+      - linters:
+          - gocritic
+        path: internal/analysis/report\.go
+        text: 'hugeParam: r is heavy'
       - linters:
           - gosec
         text: 'G304:'

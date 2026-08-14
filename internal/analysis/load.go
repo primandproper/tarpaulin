@@ -131,6 +131,35 @@ func loadPackages(ctx context.Context, dir string, patterns []string) ([]*packag
 	return kept, fset, nil
 }
 
+// collectSourceFiles is every file the loaded packages were built from, keyed
+// by the import path of the package that named it, de-duplicated and sorted.
+//
+// The same file arrives more than once — a package and its `pkg [pkg.test]`
+// variant share their non-test sources, and both mean the same file on disk.
+// Files the build constraints excluded are included too: a profile produced
+// under different tags still names them, and this list is what such a profile
+// is resolved against.
+func collectSourceFiles(pkgs []*packages.Package) map[string][]string {
+	sources := make(map[string][]string, len(pkgs))
+
+	for _, pkg := range pkgs {
+		if pkg.PkgPath == "" {
+			continue
+		}
+
+		sources[pkg.PkgPath] = append(sources[pkg.PkgPath],
+			slices.Concat(pkg.GoFiles, pkg.CompiledGoFiles, pkg.IgnoredFiles)...)
+	}
+
+	for pkgPath, files := range sources {
+		slices.Sort(files)
+
+		sources[pkgPath] = slices.Compact(files)
+	}
+
+	return sources
+}
+
 // checkModule explains a load failure that a missing go.mod accounts for, and
 // returns nil for one it does not.
 //

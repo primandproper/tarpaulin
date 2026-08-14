@@ -60,6 +60,7 @@ func Analyze(ctx context.Context, cfg Config) (*Report, error) {
 		Root:       moduleRoot(absolutePath(dir)),
 		Strictness: cfg.Strictness,
 		Functions:  make([]Function, 0, len(declarations)),
+		Sources:    collectSourceFiles(pkgs),
 		Warnings:   renderWarnings(dir, warnings),
 	}
 

@@ -27,7 +27,8 @@ read the fixture for a rule before changing it.
 - `internal/analysis/testdata/` — the fixture corpus, one directory per semantic case. See
   Testing below; these are *not* formatted or linted, deliberately.
 - `internal/coverage/` — the `cover` renderer. `coverage.go` (the `Render` entrypoint, `Config`, and
-  the per-file totals), `sources.go` (turning the package paths a profile names into files on disk),
+  the per-file totals), `sources.go` (turning the package paths a profile names into files on disk,
+  from the analysis' own file list where it can and a `NeedName`-only load where it cannot),
   `annotate.go` (the boundary walk and the four verdicts), `html.go` (the page template).
   `testdata/simple.out` is a real profile over `analysis/testdata/simple`, pinned to that fixture's
   line and column numbers.
@@ -211,6 +212,11 @@ the list at the module root is worth a look.
   They exist for the coverage view: a cover profile names files by package path and blocks by line,
   so joining the two needs a file to open and a range to fall inside. Keep them out of the JSON —
   the wire shape is pinned verbatim in `analysis_test.go`.
+- `Report.Sources` carries the load's own file list, keyed by import path, for the same reader: a
+  load is ~99.9% of an analysis, so the thing worth handing a caller is the load it would otherwise
+  repeat. `cover` resolves the profile's package-relative names against it and loads only what the
+  report cannot account for. It is one map because `Report` is passed by value to its own methods
+  (`MarshalJSON` has to be reachable from a value) and gocritic holds that value to a size.
 
 ## CLI conventions worth knowing
 

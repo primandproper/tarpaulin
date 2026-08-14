@@ -171,6 +171,19 @@ func (c *collector) walk(pkg *packages.Package, node ast.Node, site refSite) {
 // record credits a reference, normalizing generic instantiations back to the
 // generic they came from and resolving interface dispatch where the answer is
 // knowable.
+//
+// The errors trio — Is, As, and Unwrap — is deliberately not a third case here.
+// A test asserting errors.Is(err, ErrSentinel) is asserting exactly what the
+// package's own Is method returns, so the omission is not the reflection case
+// the README settles under "Methods nothing can name": the method set is
+// statically knowable, and the test is not reaching it incidentally. It is
+// still not credited, because the identifier resolves to errors.Is, and getting
+// from there to the declaring type means connecting the *value* passed in to
+// the method it carries — dataflow, which nothing in this file does. Crediting
+// per-package instead would absolve every Is/As/Unwrap beside any errors.Is a
+// test happens to call, which is the over-crediting the tool exists not to do.
+// See testdata/errors_dispatch, which pins that outcome, and the //tarp:ignore
+// hatch, whose reason can name the asserting test.
 func (c *collector) record(fn *types.Func, site refSite) {
 	fn = fn.Origin()
 

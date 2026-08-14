@@ -50,6 +50,35 @@ Grade: 75% (3/4 functions)
 The tool's job is to measure against that ideal, not to be satisfiable. Expect a
 mediocre grade on a real codebase; that is the point.
 
+### What a reference does not prove
+
+The ideal above is about assertions. The measurement is not: what tarp checks is
+that a `TestXxx` body **references** the function. It never looks at what the
+test does with it.
+
+So a test that asserts nothing scores as tested — including every one in the
+example above, none of which has an assertion in it. So does a test that calls
+the function with inputs reaching only its first guard clause:
+
+```go
+func TestParse(t *testing.T) { _, _ = Parse(nil) }   // returns on the nil check; graded 1/1
+```
+
+tarp and `go test -cover` are wrong in opposite directions. Coverage credits a
+function nobody tested, because somebody else's test executed it. tarp credits a
+test that checks nothing, because it named the function. Neither subsumes the
+other, and neither is a substitute for reading the test:
+
+|                      | `go test -cover` says | `tarp` says |
+| -------------------- | --------------------- | ----------- |
+| `B` in the example above, executed only by `wrapper`'s test | covered | untested |
+| `func TestB(t *testing.T) { B() }`, no assertion | covered | tested |
+| A test asserting one branch of ten | partly covered | tested |
+
+A function green in both has a test written for it *and* the statements to show
+for it. That is the pair worth running in CI; either alone is a metric with a
+known way to be satisfied cheaply.
+
 ## Quickstart
 
 Requires **Go 1.26+**. [Docker](https://www.docker.com/) is used for linting and
@@ -135,6 +164,11 @@ method expressions, functions passed as arguments, deferred closures,
 range-over-func iterators, and generic instantiations are all references,
 because the question asked is "what does this identifier resolve to?" rather
 than "is this a call?".
+
+That question is answered by resolution alone, which is what makes the dial
+cheap and predictable — and what
+[a reference does not prove](#what-a-reference-does-not-prove): none of these
+levels inspects what the test does after naming the function.
 
 ### What is never reported
 

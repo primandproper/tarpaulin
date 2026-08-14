@@ -145,6 +145,59 @@ func TestCollectDiagnostics(t *testing.T) {
 	})
 }
 
+func TestCollectSourceFiles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("keys every file by the package that named it", func(t *testing.T) {
+		t.Parallel()
+
+		pkgs := []*packages.Package{
+			{
+				PkgPath:         "example.com/m/pkg",
+				GoFiles:         []string{"/src/pkg/b.go", "/src/pkg/a.go"},
+				CompiledGoFiles: []string{"/src/pkg/a.go"},
+				// Excluded by build constraints, and kept: a profile produced
+				// under different tags still names it.
+				IgnoredFiles: []string{"/src/pkg/windows.go"},
+			},
+			{PkgPath: "example.com/m", GoFiles: []string{"/src/main.go"}},
+		}
+
+		test.Eq(t, map[string][]string{
+			"example.com/m":     {"/src/main.go"},
+			"example.com/m/pkg": {"/src/pkg/a.go", "/src/pkg/b.go", "/src/pkg/windows.go"},
+		}, collectSourceFiles(pkgs))
+	})
+
+	t.Run("de-duplicates across package variants", func(t *testing.T) {
+		t.Parallel()
+
+		// A package and its `pkg [pkg.test]` variant share their non-test
+		// sources, and both mean the same file on disk.
+		pkgs := []*packages.Package{
+			{PkgPath: "example.com/m/pkg", GoFiles: []string{"/src/pkg/a.go"}},
+			{PkgPath: "example.com/m/pkg", GoFiles: []string{"/src/pkg/a.go", "/src/pkg/a_test.go"}},
+		}
+
+		test.Eq(t, map[string][]string{
+			"example.com/m/pkg": {"/src/pkg/a.go", "/src/pkg/a_test.go"},
+		}, collectSourceFiles(pkgs))
+	})
+
+	t.Run("skips a package with no import path", func(t *testing.T) {
+		t.Parallel()
+
+		// Nothing can be keyed on a package that does not say what it is.
+		test.MapEmpty(t, collectSourceFiles([]*packages.Package{{GoFiles: []string{"/src/a.go"}}}))
+	})
+
+	t.Run("nothing loaded", func(t *testing.T) {
+		t.Parallel()
+
+		test.MapEmpty(t, collectSourceFiles(nil))
+	})
+}
+
 func TestCheckModule(t *testing.T) {
 	t.Parallel()
 

@@ -81,6 +81,27 @@ func TestAnalyze(t *testing.T) {
 		test.Eq(t, [2]int{11, 15}, spans["wrapper"])
 	})
 
+	t.Run("carries the files the load read", func(t *testing.T) {
+		t.Parallel()
+
+		// The coverage view resolves a profile's package-relative names against
+		// this list rather than loading the same packages a second time, so it
+		// has to name every file of the analyzed package — test files included,
+		// and each one exactly once across the three variants a load returns.
+		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
+		must.NoError(t, err)
+
+		mainGo, err := filepath.Abs(filepath.Join(corpusDir, "simple", "main.go"))
+		must.NoError(t, err)
+
+		testGo, err := filepath.Abs(filepath.Join(corpusDir, "simple", "main_test.go"))
+		must.NoError(t, err)
+
+		const simplePkg = "github.com/primandproper/tarpaulin/internal/analysis/testdata/simple"
+
+		test.Eq(t, map[string][]string{simplePkg: {mainGo, testGo}}, report.Sources)
+	})
+
 	t.Run("defaults to the strictest setting", func(t *testing.T) {
 		t.Parallel()
 

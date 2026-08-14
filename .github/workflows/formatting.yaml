@@ -27,5 +27,19 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
+      # testdata/ holds the analyzer's fixture corpus: deliberately unformatted,
+      # deliberately unparseable in places, and pinned to exact line numbers. The
+      # local format scripts exclude it the same way. `gofmt -l` walks the
+      # filesystem rather than Go's package wildcard, so unlike `go vet ./...` it
+      # has to be told.
       - name: check formatting
-        run: if [ $(gofmt -l . | grep -Ev '^vendor\/' | head -c1 | wc -c) -ne 0 ]; then exit 1; fi
+        run: |
+          unformatted=$(find . -type f -name '*.go' \
+            -not -path './vendor/*' -not -path '*/testdata/*' -print0 |
+            xargs -0 gofmt -l)
+
+          if [ -n "${unformatted}" ]; then
+            echo "::error::gofmt reports these files as unformatted:"
+            echo "${unformatted}"
+            exit 1
+          fi

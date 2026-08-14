@@ -7,7 +7,7 @@ set -euo pipefail
 # 2) Build all packages (no VCS): build.sh <package_list>
 #    e.g. build.sh "$(go list ./...)"
 
-VERSION_PKG="github.com/primandproper/template-go/version"
+VERSION_PKG="github.com/primandproper/tarpaulin/version"
 
 if [[ "${1:-}" == "-o" ]]; then
 	OUT="${2:?missing output path after -o}"
@@ -31,7 +31,16 @@ if [[ "${1:-}" == "-o" ]]; then
 	fi
 	[[ -z "$COMMIT_TIME" ]] && COMMIT_TIME="unknown"
 
-	LDFLAGS="-s -w -X ${VERSION_PKG}.CommitHash=${COMMIT_HASH} -X ${VERSION_PKG}.BuildTime=${BUILD_TIME} -X ${VERSION_PKG}.CommitTime=${COMMIT_TIME}"
+	# The release this binary is: an explicit VERSION (what release.sh passes,
+	# so the archive and the binary can never disagree about the tag), else
+	# whatever git can describe, which is what a local build gets.
+	RELEASE_VERSION="${VERSION:-}"
+	if [[ -z "$RELEASE_VERSION" ]] && command -v git &>/dev/null; then
+		RELEASE_VERSION=$(git describe --tags --always --dirty 2>/dev/null || true)
+	fi
+	[[ -z "$RELEASE_VERSION" ]] && RELEASE_VERSION="unknown"
+
+	LDFLAGS="-s -w -X ${VERSION_PKG}.Version=${RELEASE_VERSION} -X ${VERSION_PKG}.CommitHash=${COMMIT_HASH} -X ${VERSION_PKG}.BuildTime=${BUILD_TIME} -X ${VERSION_PKG}.CommitTime=${COMMIT_TIME}"
 	go build -trimpath -ldflags "$LDFLAGS" -o "$OUT" "$PACKAGE"
 else
 	PACKAGE_LIST="${1:?missing package list}"

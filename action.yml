@@ -1,0 +1,280 @@
+---
+name: 'tarp'
+description: 'Find Go functions with no direct unit test, and grade the package.'
+author: 'primandproper'
+
+branding:
+  icon: 'umbrella'
+  color: 'yellow'
+
+inputs:
+  version:
+    description: >-
+      The tarp release to run. Pinned rather than floating on purpose: a
+      stricter analyzer must never break a consumer's CI on a day they changed
+      nothing.
+    required: false
+    default: 'v0.1.0'
+  package:
+    description: >-
+      A directory (analyzed with everything beneath it) or a go/packages
+      pattern. Same two rules as the CLI.
+    required: false
+    default: './...'
+  strictness:
+    description: 'How close a reference must be to count: file, package, or any.'
+    required: false
+    default: 'file'
+  failure_score_threshold:
+    description: >-
+      Fail the build when the grade falls below this percentage (0 to 100).
+      0 never fails.
+    required: false
+    default: '0'
+  fail_on_found:
+    description: >-
+      Fail the build when anything at all is reported. Strictly stronger than
+      failure_score_threshold.
+    required: false
+    default: 'false'
+  working-directory:
+    description: 'Directory to run tarp from.'
+    required: false
+    default: '.'
+  annotate:
+    description: 'Annotate the untested functions inline on the pull request.'
+    required: false
+    default: 'true'
+  max_annotations:
+    description: >-
+      How many inline annotations to emit. GitHub renders at most 10 warnings
+      per step; the rest are always listed in the job summary, and a truncation
+      is logged rather than passed off as full coverage.
+    required: false
+    default: '10'
+  summary:
+    description: 'Write the report to the job summary.'
+    required: false
+    default: 'true'
+  sarif_output:
+    description: >-
+      Also write a SARIF 2.1.0 document to this path. Empty writes none. What to
+      do with the file is left to you — upload it as an artifact, feed it to a
+      viewer, or hand it to github/codeql-action/upload-sarif if your repository
+      has code scanning. Emitting SARIF needs no entitlement; only uploading it
+      into code scanning does, so this action does not presume one.
+    required: false
+    default: ''
+
+outputs:
+  score:
+    description: 'The grade, 0 to 100.'
+    value: ${{ steps.run.outputs.score }}
+  declared:
+    description: 'How many functions were held to the standard.'
+    value: ${{ steps.run.outputs.declared }}
+  tested:
+    description: 'How many of them carry a direct test.'
+    value: ${{ steps.run.outputs.tested }}
+  untested_count:
+    description: 'How many do not.'
+    value: ${{ steps.run.outputs.untested_count }}
+  report:
+    description: 'Path to the raw JSON report.'
+    value: ${{ steps.run.outputs.report }}
+  sarif:
+    description: 'Path to the SARIF document, when sarif_output asked for one.'
+    value: ${{ steps.run.outputs.sarif }}
+
+runs:
+  using: composite
+  steps:
+    - name: install tarp
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        case "${RUNNER_OS}" in
+          Linux)   goos=linux ;;
+          macOS)   goos=darwin ;;
+          Windows) goos=windows ;;
+          *) echo "::error::tarp has no build for runner OS ${RUNNER_OS}"; exit 1 ;;
+        esac
+
+        case "${RUNNER_ARCH}" in
+          X64)   goarch=amd64 ;;
+          ARM64) goarch=arm64 ;;
+          *) echo "::error::tarp has no build for runner arch ${RUNNER_ARCH}"; exit 1 ;;
+        esac
+
+        if [[ "${goos}" == "windows" ]]; then extension="zip"; else extension="tar.gz"; fi
+
+        archive="tarp_${VERSION}_${goos}_${goarch}.${extension}"
+        base="https://github.com/primandproper/tarpaulin/releases/download/${VERSION}"
+
+        install_dir="${RUNNER_TEMP}/tarp"
+        mkdir -p "${install_dir}"
+        cd "${install_dir}"
+
+        echo "Downloading ${archive}..."
+        curl --silent --show-error --fail --location --output "${archive}" "${base}/${archive}"
+        curl --silent --show-error --fail --location --output checksums.txt "${base}/checksums.txt"
+
+        # The release publishes a checksum for every archive; verifying it is
+        # the cheap half of not running whatever the network handed back.
+        if command -v sha256sum &>/dev/null; then checksum=(sha256sum --check -); else checksum=(shasum --algorithm 256 --check -); fi
+        grep " ${archive}\$" checksums.txt | "${checksum[@]}"
+
+        if [[ "${extension}" == "zip" ]]; then unzip -q "${archive}"; else tar -xzf "${archive}"; fi
+
+        # The tar archive preserves the mode; the zip does not, and Windows does
+        # not need it either way.
+        if [[ -f tarp ]]; then chmod +x tarp; fi
+
+        echo "${install_dir}" >>"${GITHUB_PATH}"
+
+    - name: run tarp
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PACKAGE: ${{ inputs.package }}
+        STRICTNESS: ${{ inputs.strictness }}
+        MIN_SCORE: ${{ inputs.failure_score_threshold }}
+        FAIL_ON_FOUND: ${{ inputs.fail_on_found }}
+        SARIF_OUTPUT: ${{ inputs.sarif_output }}
+      run: |
+        set -euo pipefail
+
+        report="${RUNNER_TEMP}/tarp-report.json"
+
+        # What to analyze, without any opinion about failing the build. The
+        # gates hang off a copy, so the SARIF run below can reuse the base.
+        base=(analyze --package "${PACKAGE}" --strictness "${STRICTNESS}")
+
+        args=("${base[@]}")
+        [[ "${FAIL_ON_FOUND}" == "true" ]] && args+=(--fail-on-found)
+        [[ "${MIN_SCORE}" != "0" ]] && args+=(--min-score "${MIN_SCORE}")
+
+        # The gates exit non-zero by design, so the failure is carried to the
+        # last step rather than killing this one — the annotations and the
+        # summary are most wanted on exactly the runs that fail.
+        set +e
+        tarp "${args[@]}" --format=json >"${report}"
+        code=$?
+        set -e
+
+        # A gate leaves a complete report behind; a broken package or a bad flag
+        # does not. Anything that did not produce parseable JSON is a real
+        # failure, and tarp has already said why on stderr.
+        if ! jq --exit-status . "${report}" >/dev/null 2>&1; then
+          echo "::error::tarp failed to produce a report; see the log above"
+          exit "${code}"
+        fi
+
+        # A second invocation, because one run renders one format to stdout.
+        # Only the runs that asked for SARIF pay for it, and it runs off the
+        # ungated base: the outcome was decided above, and a gate tripping here
+        # would say the same thing twice.
+        sarif=""
+        if [[ -n "${SARIF_OUTPUT}" ]]; then
+          sarif="${SARIF_OUTPUT}"
+          mkdir -p "$(dirname "${sarif}")"
+          tarp "${base[@]}" --format=sarif >"${sarif}"
+        fi
+
+        {
+          echo "code=${code}"
+          echo "report=${report}"
+          echo "sarif=${sarif}"
+          echo "score=$(jq --raw-output .score "${report}")"
+          echo "declared=$(jq --raw-output .declared "${report}")"
+          echo "tested=$(jq --raw-output .tested "${report}")"
+          echo "untested_count=$(jq --raw-output '.untested | length' "${report}")"
+        } >>"${GITHUB_OUTPUT}"
+
+        # Where the reported paths sit relative to the repository root. tarp
+        # reports a file relative to the directory it analyzed, and an
+        # annotation GitHub cannot resolve from the root is one it drops without
+        # saying so. The two rules are the CLI's own: an existing directory is
+        # analyzed as that directory, anything else is a pattern resolved from
+        # here.
+        analyzed="."
+        [[ -d "${PACKAGE}" ]] && analyzed="${PACKAGE}"
+
+        absolute="$(cd "${analyzed}" && pwd)"
+        root="$(cd "${GITHUB_WORKSPACE}" && pwd)"
+
+        prefix="${absolute#"${root}"/}"
+        [[ "${prefix}" == "${absolute}" ]] && prefix=""
+
+        echo "prefix=${prefix}" >>"${GITHUB_OUTPUT}"
+
+    - name: annotate the untested functions
+      if: ${{ inputs.annotate == 'true' }}
+      shell: bash
+      env:
+        REPORT: ${{ steps.run.outputs.report }}
+        PREFIX: ${{ steps.run.outputs.prefix }}
+        MAX: ${{ inputs.max_annotations }}
+      run: |
+        set -euo pipefail
+
+        total="$(jq --raw-output '.untested | length' "${REPORT}")"
+        [[ "${total}" -eq 0 ]] && exit 0
+
+        # Annotations stay warnings even when a gate fails the build. Promoting
+        # them to errors would paint every untested function in the Files
+        # Changed view, including the ones the pull request never touched.
+        jq --raw-output --arg prefix "${PREFIX}" --argjson max "${MAX}" '
+          .untested[:$max][]
+          | "::warning file=\($prefix | if . == "" then "" else . + "/" end)\(.file),line=\(.line),title=tarp::\(.name) has no direct unit test"
+        ' "${REPORT}"
+
+        if [[ "${total}" -gt "${MAX}" ]]; then
+          echo "::notice::tarp annotated ${MAX} of ${total} untested functions; the full list is in the job summary"
+        fi
+
+    - name: write the job summary
+      if: ${{ inputs.summary == 'true' }}
+      shell: bash
+      env:
+        REPORT: ${{ steps.run.outputs.report }}
+        MIN_SCORE: ${{ inputs.failure_score_threshold }}
+      run: |
+        set -euo pipefail
+
+        {
+          echo "## tarp"
+          echo
+          jq --raw-output --arg minimum "${MIN_SCORE}" '
+            "**Grade: \(.score)%** (\(.tested)/\(.declared) functions carry a direct unit test)"
+            + (if ($minimum | tonumber) > 0 then "  \nRequired: \($minimum)%" else "" end)
+            + "  \nStrictness: `\(.strictness)`"
+          ' "${REPORT}"
+          echo
+
+          if [[ "$(jq --raw-output '.untested | length' "${REPORT}")" -gt 0 ]]; then
+            echo "### Functions without a direct unit test"
+            echo
+            echo "| Function | File | Line |"
+            echo "| --- | --- | --- |"
+            jq --raw-output '.untested[] | "| `\(.name)` | `\(.file)` | \(.line) |"' "${REPORT}"
+            echo
+          fi
+
+          jq --raw-output '.warnings[]? | "> [!WARNING]\n> \(.)\n"' "${REPORT}"
+        } >>"${GITHUB_STEP_SUMMARY}"
+
+    - name: report the result
+      shell: bash
+      env:
+        CODE: ${{ steps.run.outputs.code }}
+      run: |
+        set -euo pipefail
+
+        # tarp already printed why on stderr, in the run step above. Exiting
+        # with its code is all that is left to do.
+        exit "${CODE}"

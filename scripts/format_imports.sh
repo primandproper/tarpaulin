@@ -3,15 +3,17 @@ set -euo pipefail
 
 # Format Go imports using gci
 # Usage: format_imports.sh <package_prefix> <project_root>
+#
+# testdata/ is excluded: see the note in goimports.sh.
 
-PACKAGE_PREFIX="${1:-github.com/primandproper/template-go}"
+PACKAGE_PREFIX="${1:-github.com/primandproper/tarpaulin}"
 PROJECT_ROOT="${2:-$(pwd)}"
 
 # Find all Go files and pass them to gci
 go_files=()
 while IFS= read -r -d '' file; do
   go_files+=("${file}")
-done < <(find "${PROJECT_ROOT}" -type f -not -path '*/vendor/*' -name "*.go" -print0)
+done < <(find "${PROJECT_ROOT}" -type f -not -path '*/vendor/*' -not -path '*/testdata/*' -name "*.go" -print0)
 
 if [ ${#go_files[@]} -gt 0 ]; then
   go tool gci write \

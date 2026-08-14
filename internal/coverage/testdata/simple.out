@@ -1,0 +1,5 @@
+mode: count
+github.com/primandproper/tarpaulin/internal/analysis/testdata/simple/main.go:3.17,3.31 1 2
+github.com/primandproper/tarpaulin/internal/analysis/testdata/simple/main.go:7.17,7.31 1 1
+github.com/primandproper/tarpaulin/internal/analysis/testdata/simple/main.go:9.17,9.31 1 2
+github.com/primandproper/tarpaulin/internal/analysis/testdata/simple/main.go:11.16,15.2 3 1

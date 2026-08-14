@@ -3,9 +3,10 @@ package config
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
+
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
 )
 
 // Environment pairs a named, real Config object with the path its rendered JSON
@@ -32,7 +33,7 @@ func Render(ctx context.Context, envs []Environment, validate bool) error {
 		for i := range envs {
 			env := &envs[i]
 			if err := env.Config.Validate(ctx); err != nil {
-				return fmt.Errorf("validating %s config: %w", env.Name, err)
+				return platformerrors.Wrapf(err, "validating %s config", env.Name)
 			}
 		}
 	}
@@ -40,18 +41,22 @@ func Render(ctx context.Context, envs []Environment, validate bool) error {
 	for i := range envs {
 		env := &envs[i]
 
+		// json.MarshalIndent rather than platform-go's encoding package, which
+		// is otherwise this repo's way to turn values into bytes: these files are
+		// committed to be read and reviewed, and encoding deliberately does not
+		// alter its marshaler's output, so it has no indentation to offer.
 		data, err := json.MarshalIndent(env.Config, "", "\t")
 		if err != nil {
-			return fmt.Errorf("marshaling %s config: %w", env.Name, err)
+			return platformerrors.Wrapf(err, "marshaling %s config", env.Name)
 		}
 		data = append(data, '\n')
 
 		if err = os.MkdirAll(filepath.Dir(env.Path), 0o750); err != nil {
-			return fmt.Errorf("creating directory for %s config: %w", env.Name, err)
+			return platformerrors.Wrapf(err, "creating directory for %s config", env.Name)
 		}
 
 		if err = os.WriteFile(env.Path, data, 0o600); err != nil {
-			return fmt.Errorf("writing %s config: %w", env.Name, err)
+			return platformerrors.Wrapf(err, "writing %s config", env.Name)
 		}
 	}
 

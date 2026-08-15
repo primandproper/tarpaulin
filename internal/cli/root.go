@@ -38,6 +38,7 @@ const shutdownTimeout = 5 * time.Second
 // it through the application receiver on their RunE closures.
 type application struct {
 	pillars *observability.Pillars
+	config  *config.Config
 	logger  logging.Logger
 }
 
@@ -116,7 +117,8 @@ func (a *application) newRootCommand() *cobra.Command {
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", envOr("TARP_LOG_LEVEL", config.LevelInfo), "log level: debug, info, warn, or error")
 	rootCmd.PersistentFlags().StringVar(&serviceName, "service-name", envOr("TARP_SERVICE_NAME", config.DefaultServiceName), "service name reported in telemetry")
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", envOr(ConfigFilePathEnvVar, ""), "path to a JSON config file; when set, it is loaded in place of the flag/env defaults")
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", envOr(ConfigFilePathEnvVar, ""),
+		"path to a JSON, YAML, or TOML config `file`; when set, it is loaded instead of the project's own .tarp file")
 
 	rootCmd.AddCommand(a.newAnalyzeCommand(), a.newCoverCommand(), a.newVersionCommand())
 
@@ -124,17 +126,20 @@ func (a *application) newRootCommand() *cobra.Command {
 }
 
 // bootstrap assembles configuration and stands up the observability pillars,
-// caching the logger on the application for subcommands to use. When configPath
-// is set it loads that JSON file; otherwise it builds from the flag/env
-// defaults. Either way, environment variables overlay the result.
+// caching both on the application for subcommands to use. When configPath is
+// set it loads that file; otherwise it looks for the project's own config file,
+// and falls back to the flag/env defaults when there is none. Either way,
+// environment variables overlay the result.
 func (a *application) bootstrap(ctx context.Context, opts config.Options, configPath string) error {
-	var (
-		cfg *config.Config
-		err error
-	)
+	path, err := a.configFilePath(configPath)
+	if err != nil {
+		return err
+	}
 
-	if configPath = strings.TrimSpace(configPath); configPath != "" {
-		cfg, err = config.LoadFromFile(ctx, configPath)
+	var cfg *config.Config
+
+	if path != "" {
+		cfg, err = config.LoadFromFile(ctx, path)
 	} else {
 		cfg, err = config.Load(ctx, opts)
 	}
@@ -148,11 +153,40 @@ func (a *application) bootstrap(ctx context.Context, opts config.Options, config
 	}
 
 	a.pillars = pillars
+	a.config = cfg
 	a.logger = logging.NewNamedLogger(pillars.Logger, cfg.Observability.Logging.ServiceName)
 
-	a.logger.Debug("observability suite initialized")
+	a.logger.WithValue("configFile", path).Debug("observability suite initialized")
 
 	return nil
+}
+
+// configFilePath decides which config file to load: the one the caller named,
+// or the project's own, or none.
+//
+// Discovery is skipped entirely when --config names a file, because the two
+// answer different questions. --config is "use this one", which is what a
+// deployment mounting a config says; discovery is "use whatever this project
+// keeps", which is what everyone else means. Searching after being told where
+// to look would only ever surprise somebody.
+func (a *application) configFilePath(configPath string) (string, error) {
+	if configPath = strings.TrimSpace(configPath); configPath != "" {
+		return configPath, nil
+	}
+
+	return config.Discover(".")
+}
+
+// configuration returns the loaded configuration, or the built-in defaults if
+// bootstrap has not run — the same courtesy log() extends, and for the same
+// reason: a command reaching for a setting is the worst possible place to learn
+// that startup was skipped.
+func (a *application) configuration() *config.Config {
+	if a.config == nil {
+		return config.New(config.Options{})
+	}
+
+	return a.config
 }
 
 // shutdown flushes and releases the observability pillars. It is safe to call

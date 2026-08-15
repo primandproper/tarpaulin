@@ -10,6 +10,8 @@ import (
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
 
+	platformerrors "github.com/primandproper/platform-go/v10/errors"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -41,7 +43,7 @@ func TestAnalyze(t *testing.T) {
 		// simple is the canonical example: A, B and C are each called by
 		// wrapper, and wrapper has a test, so statement coverage reads 100%
 		// while B has no test of its own.
-		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
 		must.NoError(t, err)
 
 		mainGo, err := filepath.Abs(filepath.Join(corpusDir, "simple", "main.go"))
@@ -69,7 +71,7 @@ func TestAnalyze(t *testing.T) {
 
 		// The line range is what lets a consumer holding a line number — a
 		// coverage block — ask which function it fell inside.
-		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
 		must.NoError(t, err)
 
 		spans := make(map[string][2]int, report.Declared())
@@ -88,7 +90,7 @@ func TestAnalyze(t *testing.T) {
 		// this list rather than loading the same packages a second time, so it
 		// has to name every file of the analyzed package — test files included,
 		// and each one exactly once across the three variants a load returns.
-		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
 		must.NoError(t, err)
 
 		mainGo, err := filepath.Abs(filepath.Join(corpusDir, "simple", "main.go"))
@@ -107,7 +109,7 @@ func TestAnalyze(t *testing.T) {
 
 		// cross_file's declaration is tested from a sibling file's test, which
 		// only the loosened dial accepts. The zero value must be the strict one.
-		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "cross_file")})
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, "cross_file")})
 		must.NoError(t, err)
 
 		must.SliceLen(t, 1, report.Untested())
@@ -118,7 +120,7 @@ func TestAnalyze(t *testing.T) {
 	t.Run("emits stable JSON", func(t *testing.T) {
 		t.Parallel()
 
-		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
 		must.NoError(t, err)
 
 		// Deliberately the standard library rather than platform-go's encoding
@@ -138,7 +140,7 @@ func TestAnalyze(t *testing.T) {
 		var first []byte
 
 		for range 5 {
-			report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "ordering")})
+			report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, "ordering")})
 			must.NoError(t, err)
 
 			encoded, err := json.Marshal(report)
@@ -153,7 +155,7 @@ func TestAnalyze(t *testing.T) {
 			must.True(t, bytes.Equal(first, encoded), must.Sprint("output differed between runs"))
 		}
 
-		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "ordering")})
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, "ordering")})
 		must.NoError(t, err)
 
 		test.Eq(t, []string{"alpha.go:4 AlphaOne", "alpha.go:7 AlphaTwo", "beta.go:4 BetaOne", "beta.go:7 BetaTwo"},
@@ -163,12 +165,100 @@ func TestAnalyze(t *testing.T) {
 	t.Run("warns about an ignore directive with no reason", func(t *testing.T) {
 		t.Parallel()
 
-		report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "ignore_directive")})
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, "ignore_directive")})
 		must.NoError(t, err)
 
 		must.SliceLen(t, 1, report.Warnings)
 		test.StrContains(t, report.Warnings[0], "Reasonless")
 		test.StrContains(t, report.Warnings[0], analysis.IgnoreDirective)
+	})
+}
+
+func TestAnalyzeExclusions(t *testing.T) {
+	t.Parallel()
+
+	// multi_package declares five functions across three packages: alpha and
+	// gamma each have a Tested and a Never, beta has only a Never.
+	const multiPackage = "multi_package"
+
+	t.Run("nothing excluded is the whole package", func(t *testing.T) {
+		t.Parallel()
+
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, multiPackage)})
+		must.NoError(t, err)
+
+		test.Eq(t, 5, report.Declared())
+		test.Eq(t, 3, len(report.Untested()))
+	})
+
+	t.Run("a path pattern withholds a whole directory", func(t *testing.T) {
+		t.Parallel()
+
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{
+			Dir:     filepath.Join(corpusDir, multiPackage),
+			Exclude: analysis.Exclusions{Paths: []string{"beta"}},
+		})
+		must.NoError(t, err)
+
+		// Withheld rather than failed: an exclusion leaves the grade entirely,
+		// exactly as //tarp:ignore does, so the denominator drops by one too.
+		test.Eq(t, 4, report.Declared())
+		test.Eq(t, 2, report.Tested())
+	})
+
+	t.Run("a path pattern is relative to the module root", func(t *testing.T) {
+		t.Parallel()
+
+		// The pattern names where the fixture lives in this module, not where
+		// the analysis was pointed, which is what makes one config file at the
+		// root mean the same thing from every directory beneath it.
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{
+			Dir:     filepath.Join(corpusDir, multiPackage),
+			Exclude: analysis.Exclusions{Paths: []string{"internal/analysis/testdata/" + multiPackage + "/internal/**"}},
+		})
+		must.NoError(t, err)
+
+		test.Eq(t, 3, report.Declared())
+	})
+
+	t.Run("a function pattern withholds by name across packages", func(t *testing.T) {
+		t.Parallel()
+
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{
+			Dir:     filepath.Join(corpusDir, multiPackage),
+			Exclude: analysis.Exclusions{Functions: []string{"Never"}},
+		})
+		must.NoError(t, err)
+
+		test.Eq(t, 2, report.Declared())
+		test.SliceEmpty(t, report.Untested())
+		test.Eq(t, 100, report.Score())
+	})
+
+	t.Run("an excluded file earns no warning about its directives", func(t *testing.T) {
+		t.Parallel()
+
+		// The file is out of scope; being told its comments are malformed is
+		// noise about something nobody asked to have graded.
+		report, err := analysis.Analyze(t.Context(), &analysis.Config{
+			Dir:     filepath.Join(corpusDir, "ignore_directive"),
+			Exclude: analysis.Exclusions{Paths: []string{"ignore_directive"}},
+		})
+		must.NoError(t, err)
+
+		test.SliceEmpty(t, report.Warnings)
+	})
+
+	t.Run("a malformed pattern fails before anything is loaded", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := analysis.Analyze(t.Context(), &analysis.Config{
+			Dir:     filepath.Join(corpusDir, multiPackage),
+			Exclude: analysis.Exclusions{Paths: []string{"internal/[unterminated"}},
+		})
+
+		must.Error(t, err)
+		test.ErrorIs(t, err, platformerrors.ErrUnrecognizedInputValue)
 	})
 }
 
@@ -178,7 +268,7 @@ func TestAnalyzeDiagnostics(t *testing.T) {
 	t.Run("a directory with no Go files", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, "no_go_files")})
+		_, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, "no_go_files")})
 
 		must.ErrorIs(t, err, analysis.ErrNoGoFiles)
 	})
@@ -192,7 +282,7 @@ func TestAnalyzeDiagnostics(t *testing.T) {
 		dir := t.TempDir()
 		must.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n\nfunc A() {}\n"), 0o600))
 
-		_, err := analysis.Analyze(t.Context(), analysis.Config{Dir: dir})
+		_, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: dir})
 
 		must.ErrorIs(t, err, analysis.ErrNotInModule)
 		test.StrContains(t, err.Error(), "go mod init")
@@ -208,7 +298,7 @@ func TestAnalyzeDiagnostics(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := analysis.Analyze(t.Context(), analysis.Config{Dir: filepath.Join(corpusDir, fixture)})
+			_, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, fixture)})
 			must.Error(t, err)
 
 			// The old implementation parsed with parser.AllErrors and analyzed

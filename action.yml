@@ -18,13 +18,26 @@ inputs:
   package:
     description: >-
       A directory (analyzed with everything beneath it) or a go/packages
-      pattern. Same two rules as the CLI.
+      pattern. Same two rules as the CLI. Empty leaves it to the repository's
+      own .tarp file, and then to tarp's default of everything beneath the
+      working directory.
     required: false
-    default: './...'
+    default: ''
   strictness:
-    description: 'How close a reference must be to count: file, package, or any.'
+    description: >-
+      How close a reference must be to count: file, package, or any. Empty
+      leaves it to the repository's own .tarp file, and then to tarp's default
+      of file.
     required: false
-    default: 'file'
+    default: ''
+  config:
+    description: >-
+      Path to a JSON, YAML, or TOML config file, relative to working-directory.
+      Empty is the normal case: tarp finds a .tarp.yaml, .tarp.yml, .tarp.json,
+      or .tarp.toml at the repository root by itself. Set this only to point at
+      one somewhere else.
+    required: false
+    default: ''
   failure_score_threshold:
     description: >-
       Fail the build when the grade falls below this percentage (0 to 100).
@@ -142,6 +155,7 @@ runs:
       env:
         PACKAGE: ${{ inputs.package }}
         STRICTNESS: ${{ inputs.strictness }}
+        CONFIG: ${{ inputs.config }}
         MIN_SCORE: ${{ inputs.failure_score_threshold }}
         FAIL_ON_FOUND: ${{ inputs.fail_on_found }}
         SARIF_OUTPUT: ${{ inputs.sarif_output }}
@@ -152,7 +166,15 @@ runs:
 
         # What to analyze, without any opinion about failing the build. The
         # gates hang off a copy, so the SARIF run below can reuse the base.
-        base=(analyze --package "${PACKAGE}" --strictness "${STRICTNESS}")
+        #
+        # Each flag is passed only when its input was actually set, because a
+        # flag outranks the repository's .tarp file: passing this action's
+        # defaults unconditionally would mean a project's own configuration
+        # silently did nothing here.
+        base=(analyze)
+        [[ -n "${CONFIG}" ]] && base+=(--config "${CONFIG}")
+        [[ -n "${PACKAGE}" ]] && base+=(--package "${PACKAGE}")
+        [[ -n "${STRICTNESS}" ]] && base+=(--strictness "${STRICTNESS}")
 
         args=("${base[@]}")
         [[ "${FAIL_ON_FOUND}" == "true" ]] && args+=(--fail-on-found)

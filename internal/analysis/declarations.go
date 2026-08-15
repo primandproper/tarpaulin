@@ -57,7 +57,11 @@ type warning struct {
 
 // collectDeclarations gathers every function the report can hold accountable,
 // along with warnings about directives that were not honored.
-func collectDeclarations(fset *token.FileSet, pkgs []*packages.Package) (map[declKey]*declaration, []warning) {
+func collectDeclarations(
+	fset *token.FileSet,
+	pkgs []*packages.Package,
+	excluded *exclusion,
+) (map[declKey]*declaration, []warning) {
 	declarations := make(map[declKey]*declaration)
 	warnings := make([]warning, 0)
 
@@ -82,7 +86,7 @@ func collectDeclarations(fset *token.FileSet, pkgs []*packages.Package) (map[dec
 					continue
 				}
 
-				collectDeclaration(fset, pkg, funcDecl, declarations, &warnings)
+				collectDeclaration(fset, pkg, funcDecl, excluded, declarations, &warnings)
 			}
 		}
 	}
@@ -99,6 +103,7 @@ func collectDeclaration(
 	fset *token.FileSet,
 	pkg *packages.Package,
 	funcDecl *ast.FuncDecl,
+	excluded *exclusion,
 	declarations map[declKey]*declaration,
 	warnings *[]warning,
 ) {
@@ -112,6 +117,15 @@ func collectDeclaration(
 	}
 
 	position := fset.Position(fn.Pos())
+	name := funcName(fn)
+
+	// Ahead of the directive, so that a configured exclusion silences the
+	// warning a bare //tarp:ignore would earn. The file is out of scope; being
+	// told its comments are malformed is noise about something nobody asked to
+	// be graded.
+	if excluded.excludes(position.Filename, name) {
+		return
+	}
 
 	reason, directed := ignoreDirective(funcDecl.Doc)
 	if directed {
@@ -122,7 +136,7 @@ func collectDeclaration(
 		*warnings = append(*warnings, warning{
 			file: position.Filename,
 			line: position.Line,
-			name: funcName(fn),
+			name: name,
 		})
 	}
 
@@ -136,7 +150,7 @@ func collectDeclaration(
 		pkgPath: strings.TrimSuffix(pkg.PkgPath, "_test"),
 		dir:     filepath.Dir(position.Filename),
 		slot:    strings.TrimSuffix(filepath.Base(position.Filename), ".go"),
-		name:    funcName(fn),
+		name:    name,
 		endLine: fset.Position(funcDecl.End()).Line,
 	}
 }

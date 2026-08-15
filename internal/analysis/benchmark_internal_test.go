@@ -53,7 +53,7 @@ func BenchmarkCollect(b *testing.B) {
 			b.ResetTimer()
 
 			for b.Loop() {
-				collectDeclarations(fset, pkgs)
+				collectDeclarations(fset, pkgs, nil)
 				collectReferences(fset, pkgs)
 			}
 		})

@@ -94,22 +94,29 @@ make build                  # compile everything, produce artifacts/tarp
 
 ```
 tarp analyze [packages] [--package=.] [--strictness=file|package|any]
+                        [--exclude=<glob>] [--exclude-function=<glob>]
                         [--fail-on-found] [--min-score=N]
                         [--format=text|json|sarif|markdown]
 tarp cover --html=<profile> [packages] [--package=.] [--output=<file>]
                             [--strictness=file|package|any]
+                            [--exclude=<glob>] [--exclude-function=<glob>]
 ```
 
 | Flag              | Default | Meaning                                                                  |
 | ----------------- | ------- | ------------------------------------------------------------------------ |
 | `--package`, `-p` | `.`     | A directory (expanded to `./...` beneath it) or a go/packages pattern — see below |
 | `--strictness`    | `file`  | How close a reference has to be to count — see below                     |
+| `--exclude`, `-x` | —       | Glob matched against each file's path, relative to the module root; repeatable — see below |
+| `--exclude-function`, `-X` | — | Glob matched against declaration names, such as `*.MarshalJSON`; repeatable |
 | `--fail-on-found` | `false` | Exit non-zero when anything is reported, without printing an error line   |
 | `--min-score`, `-m` | `0`   | Exit non-zero when the grade falls below this percentage (0 to 100; `0` never fails) |
 | `--format`, `-f`  | `text`  | `text`, `json`, `sarif`, or `markdown` — see below. Warnings always go to stderr |
 | `--json`, `-j`    | `false` | Shorthand for `--format=json`                                            |
 | `--html`          | —       | `cover` only: the profile from `go test -coverprofile` to render          |
 | `--output`, `-o`  | stdout  | `cover` only: write the report to this file instead                       |
+
+Every default in that table can be moved into a `.tarp.yaml` at the project
+root, and a flag typed here overrides it — see [Configuration](#configuration).
 
 ### Choosing what to analyze
 
@@ -184,6 +191,11 @@ func Charge() error { ... }
 The reason is required. A bare `//tarp:ignore` exempts nothing and earns a
 warning on stderr, because an escape hatch that costs nothing to use is just a
 way to make the score go up.
+
+For a whole tree of them — generated code, mocks, a vendored directory — see
+[Configuration](#configuration): `exclude.paths` and `exclude.functions` in
+`.tarp.yaml` withhold declarations by pattern, with the same verdict the
+directive gives.
 
 ### Methods nothing can name
 
@@ -417,8 +429,9 @@ request, writes the report to the job summary, and exits with tarp's own code.
 | Input                     | Default | Meaning                                                          |
 | ------------------------- | ------- | ---------------------------------------------------------------- |
 | `version`                 | pinned  | Which tarp release to run                                         |
-| `package`                 | `./...` | A directory or a go/packages pattern, same two rules as the CLI   |
-| `strictness`              | `file`  | `file`, `package`, or `any`                                       |
+| `package`                 | —       | A directory or a go/packages pattern, same two rules as the CLI   |
+| `strictness`              | —       | `file`, `package`, or `any`                                       |
+| `config`                  | —       | Path to a config file; empty means "find the repository's own"     |
 | `failure_score_threshold` | `0`     | Fail when the grade drops below this percentage; `0` never fails  |
 | `fail_on_found`           | `false` | Fail when anything at all is reported; strictly stronger          |
 | `working-directory`       | `.`     | Where to run tarp from                                            |
@@ -436,7 +449,14 @@ to the raw JSON), so later steps can use the numbers:
 - run: echo "graded ${{ steps.tarp.outputs.score }}%"
 ```
 
-Three things worth knowing:
+A repository with a [`.tarp.yaml`](#configuration) needs none of these — the
+action runs tarp in `working-directory`, and tarp finds the file itself. That is
+why the inputs above default to empty rather than to tarp's own defaults: an
+input is passed as a flag, a flag outranks the config file, and an action
+quietly passing `--strictness file` on every run would mean a project's
+`strictness: package` never took effect.
+
+Four things worth knowing:
 
 - **`version` is pinned, not floating.** A stricter analyzer arriving on its own
   would break a consumer's CI on a day they changed nothing.
@@ -515,8 +535,98 @@ scripts/                       # build/format/lint/test/shellcheck helpers
 
 ## Configuration
 
-The CLI inherits two settings from its platform-go scaffolding, via flags or
-environment variables:
+Everything above can be a flag. Nobody wants to type it twice, so a project puts
+it in a file at its root:
+
+```yaml
+# .tarp.yaml
+analyze:
+  strictness: package
+  minScore: 80
+  failOnFound: false
+  format: text
+  package: ./...
+
+exclude:
+  paths:
+    - internal/generated/**
+    - "**/*_gen.go"
+    - mocks
+  functions:
+    - "*.MarshalJSON"
+```
+
+`.tarp.yaml`, `.tarp.yml`, `.tarp.json`, and `.tarp.toml` are all read, with the
+same keys in each; two of them in one directory is an error rather than a
+silent winner. tarp looks for one in the working directory and then upwards,
+stopping at the module root — so `tarp analyze` run from `internal/cli` means
+what it means from the root, and a stray `.tarp.yaml` in a home directory never
+governs a module underneath it. `--config <path>` names one explicitly, in any
+of the three formats, and skips the search.
+
+A file says what it wants changed; everything it omits keeps the built-in
+default.
+
+### What wins
+
+```
+defaults  <  config file  <  flags  <  TARP_ environment variables
+```
+
+A config file is what the project decided. A flag is what this run wants
+instead — and only a flag somebody actually typed counts, so a default sitting
+in `--help` never quietly outranks the file. An environment variable is what the
+machine running it insists on, which is how CI overrides a checked-in file
+without editing it:
+
+```bash
+TARP_ANALYZE_MIN_SCORE=90 tarp analyze     # tighter than .tarp.yaml asked for
+TARP_EXCLUDE_PATHS=internal/generated/**,mocks   # lists are comma-separated
+```
+
+Every setting has a variable, spelled `TARP_` then the section then the field:
+`TARP_ANALYZE_STRICTNESS`, `TARP_ANALYZE_FAIL_ON_FOUND`, `TARP_EXCLUDE_FUNCTIONS`.
+
+### Excluding files and functions
+
+`exclude.paths` are gitignore-shaped globs, matched against each file's path
+relative to the module root:
+
+| Pattern                 | Matches                                              |
+| ----------------------- | ---------------------------------------------------- |
+| `internal/generated/**` | that directory and everything under it               |
+| `internal/generated`    | the same thing — naming a directory means its contents |
+| `**/*_gen.go`           | any generated file, at any depth                     |
+| `mocks`                 | any path segment called `mocks`, anywhere            |
+| `zz_generated.go`       | any file with that name, anywhere                    |
+| `/main.go`              | that file, in the module root only                   |
+
+A pattern with no `/` matches any single segment, which is what makes a bare
+name reach a file or a directory anywhere in the tree; a leading `/` anchors it
+to the root. `*` stops at a separator and `**` does not.
+
+`exclude.functions` are globs matched against the name as the report renders it
+— `Foo`, `Thing.Method`, `(*Thing).Method` — and against the bare method name on
+its own, so `String` reaches `(*Thing).String` without a wildcard. That is the
+list for the methods [nothing can name](#methods-nothing-can-name): `String`,
+`MarshalJSON`, `Value`, and the rest of the interfaces satisfied for somebody
+else's benefit.
+
+An excluded declaration is **withheld, not failed** — exactly like
+`//tarp:ignore`, it leaves both sides of the grade rather than counting against
+it. The two are for different scales: the directive answers for one declaration
+where the reader is already looking, and demands a reason there; a config file
+answers for a whole tree at once, where the comment explaining the pattern sits
+next to the pattern. Reach for the directive when the reason is about *that*
+function.
+
+`--exclude` and `--exclude-function` are the same lists on the command line,
+repeatable. They **replace** the configured list rather than adding to it, which
+is the only way to say "grade the generated code too, just this once".
+
+### Observability
+
+The CLI also inherits two settings from its platform-go scaffolding:
 
 | Flag             | Environment variable | Default | Values                           |
 | ---------------- | -------------------- | ------- | -------------------------------- |
@@ -524,7 +634,9 @@ environment variables:
 | `--service-name` | `TARP_SERVICE_NAME`  | `tarp`  | any string                       |
 
 Logs are structured slog written to stdout, and nothing is emitted at the
-default `info` level, so `tarp analyze --json` stays machine-parseable.
+default `info` level, so `tarp analyze --json` stays machine-parseable. The same
+config file carries an `observability` section for the rest of it; the JSON
+files in `config/` are complete examples, generated by `make configs`.
 
 ## History
 

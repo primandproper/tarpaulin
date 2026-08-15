@@ -3,11 +3,11 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
+	"github.com/primandproper/tarpaulin/internal/config"
 	"github.com/primandproper/tarpaulin/internal/sarif"
 	"github.com/primandproper/tarpaulin/version"
 
@@ -33,11 +33,18 @@ const (
 	maximumScore = 100
 )
 
+// The flags only analyze carries. Like the shared ones, they are named because
+// resolution asks cobra which of them were typed.
+const (
+	formatFlag      = "format"
+	minScoreFlag    = "min-score"
+	failOnFoundFlag = "fail-on-found"
+)
+
 // analyzeOptions holds the flag values for one invocation.
 type analyzeOptions struct {
-	pkg         string
-	strictness  string
-	format      string
+	format string
+	targetOptions
 	minScore    int
 	failOnFound bool
 	asJSON      bool
@@ -66,6 +73,9 @@ func (a *application) newAnalyzeCommand() *cobra.Command {
 			"directory, so package paths such as example.com/mod/... work too.\n\n" +
 			"The target must sit inside a Go module: packages load in module mode, and a\n" +
 			"directory with no go.mod above it cannot be listed.\n\n" +
+			"Defaults come from the project's config file when there is one — a\n" +
+			".tarp.yaml, .tarp.yml, .tarp.json, or .tarp.toml at the module root — and\n" +
+			"a flag typed here overrides it for this run.\n\n" +
 			"Failing the build:\n" +
 			"  --fail-on-found    exit non-zero if anything at all is reported\n" +
 			"  --min-score 50     exit non-zero if the grade falls below 50%\n\n" +
@@ -83,54 +93,64 @@ func (a *application) newAnalyzeCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.pkg, "package", "p", ".",
-		"`directory` to analyze (expanded to ./... beneath it), or a go/packages pattern resolved from here; ignored when arguments are given")
-	cmd.Flags().StringVarP(&opts.strictness, "strictness", "s", analysis.StrictnessFile.String(),
-		"how close a reference must be to count: file, package, or any")
-	cmd.Flags().BoolVarP(&opts.failOnFound, "fail-on-found", "F", false,
-		"exit non-zero when functions without direct tests are found")
-	cmd.Flags().IntVarP(&opts.minScore, "min-score", "m", minimumScore,
-		"exit non-zero when the grade falls below this `percentage` (0 to 100; 0 never fails)")
-	cmd.Flags().StringVarP(&opts.format, "format", "f", formatText.String(),
-		"how to render the report: text, json, or sarif")
-	cmd.Flags().BoolVarP(&opts.asJSON, "json", "j", false,
-		"shorthand for --format=json")
+	registerAnalyzeFlags(cmd, opts)
 
 	return cmd
 }
 
+// registerAnalyzeFlags declares analyze's flags: the shared ones that decide
+// what is loaded, and the ones only this command carries.
+//
+// It is separate from the command so that resolution can be tested over the
+// real flag set rather than a copy of it — the layering below asks cobra which
+// flags were typed, and a test that registered its own would be checking a
+// second set that could drift from this one.
+//
+//tarp:ignore -- declaration only: flag names, defaults, and help text, asserted through cobra by TestResolveSettings and TestAnalyzeCommand, which parse the set it declares
+func registerAnalyzeFlags(cmd *cobra.Command, opts *analyzeOptions) {
+	registerTargetFlags(cmd, &opts.targetOptions)
+
+	cmd.Flags().BoolVarP(&opts.failOnFound, failOnFoundFlag, "F", false,
+		"exit non-zero when functions without direct tests are found")
+	cmd.Flags().IntVarP(&opts.minScore, minScoreFlag, "m", config.DefaultMinScore,
+		"exit non-zero when the grade falls below this `percentage` (0 to 100; 0 never fails)")
+	cmd.Flags().StringVarP(&opts.format, formatFlag, "f", config.DefaultFormat,
+		"how to render the report: text, json, or sarif")
+	cmd.Flags().BoolVarP(&opts.asJSON, "json", "j", false,
+		"shorthand for --format=json")
+}
+
 // runAnalyze performs one analysis and renders it.
 func (a *application) runAnalyze(cmd *cobra.Command, args []string, opts *analyzeOptions) error {
-	strictness, err := analysis.ParseStrictness(opts.strictness)
+	resolved, err := a.resolveSettings(cmd, args, &opts.targetOptions)
 	if err != nil {
 		return err
 	}
 
-	rendering, err := resolveFormat(opts.format, cmd.Flags().Changed("format"), opts.asJSON)
+	gates, err := a.resolveGates(cmd, opts)
 	if err != nil {
 		return err
 	}
 
-	// Every flag is checked before anything is loaded: a typo in a threshold or
-	// a format should cost a runner no time at all, let alone a full package
+	rendering, err := resolveFormat(gates.Format, cmd.Flags().Changed(formatFlag), opts.asJSON)
+	if err != nil {
+		return err
+	}
+
+	// Every setting is checked before anything is loaded: a typo in a threshold
+	// or a format should cost a runner no time at all, let alone a full package
 	// load.
-	if err = checkMinScore(opts.minScore); err != nil {
+	if err = checkMinScore(gates.MinScore); err != nil {
 		return err
 	}
-
-	dir, patterns := resolveTarget(opts.pkg, args)
 
 	a.log().WithValues(map[string]any{
-		"dir":        dir,
-		"patterns":   strings.Join(patterns, " "),
-		"strictness": strictness.String(),
+		"dir":        resolved.dir,
+		"patterns":   strings.Join(resolved.patterns, " "),
+		"strictness": resolved.strictness.String(),
 	}).Debug("analyzing")
 
-	report, err := analysis.Analyze(cmd.Context(), analysis.Config{
-		Dir:        dir,
-		Patterns:   patterns,
-		Strictness: strictness,
-	})
+	report, err := analysis.Analyze(cmd.Context(), resolved.analysisConfig())
 	if err != nil {
 		return err
 	}
@@ -146,11 +166,38 @@ func (a *application) runAnalyze(cmd *cobra.Command, args []string, opts *analyz
 	// --fail-on-found is the strictly stronger gate: a score below any minimum
 	// implies something was reported, so when both are set and both trip, the
 	// score line underneath would be saying the same thing twice.
-	if opts.failOnFound && len(report.Untested()) > 0 {
+	if gates.FailOnFound && len(report.Untested()) > 0 {
 		return errFunctionsFound
 	}
 
-	return checkScore(cmd.ErrOrStderr(), report.Score(), opts.minScore)
+	return checkScore(cmd.ErrOrStderr(), report.Score(), gates.MinScore)
+}
+
+// resolveGates reconciles the analyze-only settings — how the report is
+// rendered and what fails the build — the same way resolveSettings reconciles
+// the shared ones.
+func (a *application) resolveGates(cmd *cobra.Command, opts *analyzeOptions) (config.AnalyzeConfig, error) {
+	analyze := a.configuration().Analyze
+
+	flags := cmd.Flags()
+
+	if flags.Changed(formatFlag) {
+		analyze.Format = opts.format
+	}
+
+	if flags.Changed(minScoreFlag) {
+		analyze.MinScore = opts.minScore
+	}
+
+	if flags.Changed(failOnFoundFlag) {
+		analyze.FailOnFound = opts.failOnFound
+	}
+
+	if err := analyze.OverlayEnvironment(); err != nil {
+		return config.AnalyzeConfig{}, err
+	}
+
+	return analyze, nil
 }
 
 // checkMinScore rejects a --min-score outside the range a score can occupy.
@@ -199,26 +246,6 @@ func writeWarnings(w io.Writer, warnings []string) error {
 	}
 
 	return nil
-}
-
-// resolveTarget turns the flag and arguments into a directory and the patterns
-// to load inside it.
-//
-// Arguments win over --package and are resolved from the working directory, the
-// way the go command resolves its own. Failing those, a --package value naming
-// an existing directory becomes the directory itself, expanded to everything
-// beneath it; anything else is handed to go/packages as written, so package
-// paths such as example.com/mod/... still work.
-func resolveTarget(pkg string, args []string) (dir string, patterns []string) {
-	if len(args) > 0 {
-		return ".", args
-	}
-
-	if info, err := os.Stat(pkg); err == nil && info.IsDir() {
-		return pkg, nil
-	}
-
-	return ".", []string{pkg}
 }
 
 // render writes the report in the requested format.

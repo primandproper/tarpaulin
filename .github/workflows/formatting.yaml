@@ -10,7 +10,8 @@ concurrency:
 
 name: formatting
 jobs:
-  golang:
+  # The job key names the check run the ruleset requires; see build.yaml.
+  formatting:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     strategy:
@@ -27,16 +28,21 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      # testdata/ holds the analyzer's fixture corpus: deliberately unformatted,
-      # deliberately unparseable in places, and pinned to exact line numbers. The
-      # local format scripts exclude it the same way. `gofmt -l` walks the
-      # filesystem rather than Go's package wildcard, so unlike `go vet ./...` it
-      # has to be told.
+      # `gofmt -l` walks the filesystem rather than Go's package wildcard, so
+      # unlike `go vet ./...` it has to be told which files are the module's.
+      # scripts/go_files.sh is the one place that answers, here and locally, by
+      # asking the toolchain — which is what keeps vendor/ and testdata/ out.
+      # testdata/ has to stay out: it is the analyzer's fixture corpus,
+      # deliberately unformatted, deliberately unparseable in places, and pinned
+      # to exact line numbers.
       - name: check formatting
         run: |
-          unformatted=$(find . -type f -name '*.go' \
-            -not -path './vendor/*' -not -path '*/testdata/*' -print0 |
-            xargs -0 gofmt -l)
+          # pipefail matters more than usual here: without it, go_files.sh
+          # failing mid-pipeline is masked by xargs exiting 0 on no input, and
+          # the step passes having checked nothing at all.
+          set -euo pipefail
+
+          unformatted=$(scripts/go_files.sh . | xargs -0 gofmt -l)
 
           if [ -n "${unformatted}" ]; then
             echo "::error::gofmt reports these files as unformatted:"

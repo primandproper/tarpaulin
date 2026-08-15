@@ -70,7 +70,7 @@ func TestCorpus(t *testing.T) {
 				t.Run(strictness.String(), func(t *testing.T) {
 					t.Parallel()
 
-					report, analyzeErr := analysis.Analyze(t.Context(), analysis.Config{
+					report, analyzeErr := analysis.Analyze(t.Context(), &analysis.Config{
 						Dir:        dir,
 						Strictness: strictness,
 					})

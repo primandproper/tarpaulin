@@ -8,12 +8,14 @@ import (
 	"testing"
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
+	"github.com/primandproper/tarpaulin/internal/config"
 
 	"github.com/primandproper/platform-go/v10/encoding"
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"github.com/spf13/cobra"
 )
 
 // fixture locates a corpus package from the CLI package's directory.
@@ -473,6 +475,45 @@ func TestWriteWarnings(t *testing.T) {
 	})
 }
 
+func TestResolveGates(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a typed flag overrides the config file", func(t *testing.T) {
+		t.Parallel()
+
+		app := configured(projectConfig())
+
+		opts := &analyzeOptions{}
+		cmd := &cobra.Command{Use: "analyze"}
+		registerAnalyzeFlags(cmd, opts)
+
+		must.NoError(t, cmd.ParseFlags([]string{"--min-score", "10"}))
+
+		gates, err := app.resolveGates(cmd, opts)
+		must.NoError(t, err)
+
+		test.Eq(t, 10, gates.MinScore)
+		// The two nobody typed still come from the file.
+		test.Eq(t, formatJSON.String(), gates.Format)
+		test.True(t, gates.FailOnFound)
+	})
+
+	t.Run("nothing configured is the defaults", func(t *testing.T) {
+		t.Parallel()
+
+		opts := &analyzeOptions{}
+		cmd := &cobra.Command{Use: "analyze"}
+		registerAnalyzeFlags(cmd, opts)
+
+		gates, err := (&application{}).resolveGates(cmd, opts)
+		must.NoError(t, err)
+
+		test.Eq(t, config.DefaultFormat, gates.Format)
+		test.Eq(t, config.DefaultMinScore, gates.MinScore)
+		test.False(t, gates.FailOnFound)
+	})
+}
+
 func TestCheckMinScore(t *testing.T) {
 	t.Parallel()
 
@@ -543,35 +584,4 @@ func TestIndent(t *testing.T) {
 
 	test.Eq(t, "  ", indent("abc", 5))
 	test.Eq(t, "", indent("abc", 3))
-}
-
-func TestResolveTarget(t *testing.T) {
-	t.Parallel()
-
-	t.Run("expands a directory to everything beneath it", func(t *testing.T) {
-		t.Parallel()
-
-		dir, patterns := resolveTarget(fixture("simple"), nil)
-
-		test.Eq(t, fixture("simple"), dir)
-		test.SliceEmpty(t, patterns)
-	})
-
-	t.Run("passes a package pattern through", func(t *testing.T) {
-		t.Parallel()
-
-		dir, patterns := resolveTarget("example.com/mod/...", nil)
-
-		test.Eq(t, ".", dir)
-		test.Eq(t, []string{"example.com/mod/..."}, patterns)
-	})
-
-	t.Run("prefers explicit arguments", func(t *testing.T) {
-		t.Parallel()
-
-		dir, patterns := resolveTarget(".", []string{"./alpha", "./beta"})
-
-		test.Eq(t, ".", dir)
-		test.Eq(t, []string{"./alpha", "./beta"}, patterns)
-	})
 }

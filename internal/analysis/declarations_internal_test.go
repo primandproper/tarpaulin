@@ -265,7 +265,7 @@ func Generated() {}
 
 		// A test file's own functions are not the code under test, and generated
 		// code is nobody's to write a test for.
-		declarations, _ := collectDeclarations(source.fset, []*packages.Package{asPackage(source)})
+		declarations, _ := collectDeclarations(source.fset, []*packages.Package{asPackage(source)}, nil)
 
 		test.Eq(t, []string{"Reasonless", "Subject"}, declaredNames(declarations))
 	})
@@ -278,7 +278,7 @@ func Generated() {}
 		variant := asPackage(source)
 		variant.PkgPath = "example [example.test]"
 
-		declarations, _ := collectDeclarations(source.fset, []*packages.Package{variant, asPackage(source)})
+		declarations, _ := collectDeclarations(source.fset, []*packages.Package{variant, asPackage(source)}, nil)
 
 		recorded, ok := declarations[source.fset.Position(source.fn(t, "Subject").Pos())]
 		must.True(t, ok, must.Sprint("Subject was not collected"))
@@ -290,7 +290,7 @@ func Generated() {}
 
 		pkg := asPackage(source)
 
-		_, warnings := collectDeclarations(source.fset, []*packages.Package{pkg, pkg, pkg})
+		_, warnings := collectDeclarations(source.fset, []*packages.Package{pkg, pkg, pkg}, nil)
 
 		must.SliceLen(t, 1, warnings)
 		test.Eq(t, "Reasonless", warnings[0].name)
@@ -319,7 +319,7 @@ func First() {}
 `},
 		)
 
-		_, warnings := collectDeclarations(unsorted.fset, []*packages.Package{asPackage(unsorted)})
+		_, warnings := collectDeclarations(unsorted.fset, []*packages.Package{asPackage(unsorted)}, nil)
 
 		must.SliceLen(t, 3, warnings)
 		test.Eq(t, []warning{
@@ -334,7 +334,7 @@ func First() {}
 
 		// The warnings are rendered into the report verbatim, where a nil slice
 		// would encode as null rather than [].
-		declarations, warnings := collectDeclarations(token.NewFileSet(), nil)
+		declarations, warnings := collectDeclarations(token.NewFileSet(), nil, nil)
 
 		test.MapEmpty(t, declarations)
 		test.SliceEmpty(t, warnings)
@@ -368,7 +368,7 @@ func init() {}
 		declarations := make(map[declKey]*declaration)
 		warnings := make([]warning, 0)
 
-		collectDeclaration(source.fset, asPackage(source), source.funcDecl(t, name), declarations, &warnings)
+		collectDeclaration(source.fset, asPackage(source), source.funcDecl(t, name), nil, declarations, &warnings)
 
 		return declarations, warnings
 	}
@@ -439,8 +439,8 @@ func init() {}
 		variant := asPackage(source)
 		variant.Name, variant.PkgPath = "example_test", "example [example.test]"
 
-		collectDeclaration(source.fset, asPackage(source), source.funcDecl(t, "Subject"), declarations, &warnings)
-		collectDeclaration(source.fset, variant, source.funcDecl(t, "Subject"), declarations, &warnings)
+		collectDeclaration(source.fset, asPackage(source), source.funcDecl(t, "Subject"), nil, declarations, &warnings)
+		collectDeclaration(source.fset, variant, source.funcDecl(t, "Subject"), nil, declarations, &warnings)
 
 		must.MapLen(t, 1, declarations)
 		test.Eq(t, "example", declarations[source.fset.Position(source.fn(t, "Subject").Pos())].pkgPath)
@@ -460,7 +460,7 @@ func Stranger() {}
 		declarations := make(map[declKey]*declaration)
 		warnings := make([]warning, 0)
 
-		collectDeclaration(source.fset, asPackage(source), elsewhere.funcDecl(t, "Stranger"), declarations, &warnings)
+		collectDeclaration(source.fset, asPackage(source), elsewhere.funcDecl(t, "Stranger"), nil, declarations, &warnings)
 
 		test.MapEmpty(t, declarations)
 		test.SliceEmpty(t, warnings)

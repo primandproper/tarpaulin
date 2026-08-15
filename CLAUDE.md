@@ -22,8 +22,10 @@ read the fixture for a rule before changing it.
 - `cmd/main/main.go` — thin entrypoint: signal-cancellable context → `cli.Execute`.
 - `internal/analysis/` — the analyzer. `analysis.go` (the `Analyze` entrypoint and `Config`),
   `load.go` (go/packages loading, variant filtering, diagnostics), `declarations.go` (what is held
-  accountable, and the exclusions), `references.go` (what a test body resolves to, the one-hop rule,
-  interface dispatch), `strictness.go` (the dial), `report.go` (sorting, score, JSON shape).
+  accountable, and the always-exclusions), `exclude.go` (the configured exclusions: `Exclusions`
+  and the gitignore-shaped matcher behind it), `references.go` (what a test body resolves to, the
+  one-hop rule, interface dispatch), `strictness.go` (the dial), `report.go` (sorting, score, JSON
+  shape).
 - `internal/analysis/testdata/` — the fixture corpus, one directory per semantic case. See
   Testing below; these are *not* formatted or linted, deliberately.
 - `internal/coverage/` — the `cover` renderer. `coverage.go` (the `Render` entrypoint, `Config`, and
@@ -39,13 +41,17 @@ read the fixture for a rule before changing it.
 - `config/` — generated per-environment config files (`localdev.json`, `production.json`); committed so
   they stay reviewable, and loadable at runtime via `--config`.
 - `internal/cli/` — cobra root command, the `analyze` and `cover` subcommands, terminal output,
-  observability bootstrap + shutdown.
-- `internal/config/` — assembles `observability.Config` and builds the pillars (slog logging + noop
-  tracing/metrics/profiling by default). See `Config.NewPillars` for the upgrade path to real telemetry.
-  Two loaders use `platform-go/v10/config`: `Load` overlays `TARP_`-prefixed environment
-  variables on the flag/default-seeded config, and `LoadFromFile` decodes a complete JSON config file
-  and then overlays the same environment variables. `Render` goes the other way: it validates typed
-  `Config` objects and writes them to disk (see `make configs`).
+  observability bootstrap + shutdown. `settings.go` holds the flags both subcommands share and
+  `resolveSettings`, which reconciles the config file, the flags, and the environment into what one
+  invocation actually runs with.
+- `internal/config/` — the whole configuration: the `analyze` defaults, the `exclude` lists, and the
+  `observability.Config` the pillars are built from (slog logging + noop tracing/metrics/profiling by
+  default). See `Config.NewPillars` for the upgrade path to real telemetry. `Load` overlays
+  `TARP_`-prefixed environment variables on the flag/default-seeded config; `file.go` holds
+  `Discover` (the walk up to the module root looking for `.tarp.{yaml,yml,json,toml}`) and
+  `LoadFromFile`, which decodes one of those over the built defaults and then overlays the same
+  environment variables. `Render` goes the other way: it validates typed `Config` objects and writes
+  them to disk (see `make configs`).
 - `version/` — build metadata (`Version`/`CommitHash`/`BuildTime`/`CommitTime`), injected via
   `-ldflags` by `scripts/build.sh`. `Version` is the release tag, which is what the GitHub Action
   pins and what a bug report cites.
@@ -150,10 +156,23 @@ automatically. Error-path fixtures (`unparseable`, `no_go_files`, `broken_packag
 are listed in `errorFixtures` and exercised by `TestAnalyzeDiagnostics` instead.
 
 Because these fixtures are deliberately unformatted, deliberately broken, or pinned to exact line
-numbers, `testdata/` is excluded from `scripts/format_golang.sh`, `scripts/format_imports.sh`,
-`scripts/goimports.sh`, and the `gofmt` check in `.github/workflows/formatting.yaml`. Do not remove
-those exclusions — `unparseable/main.go` does not parse, on purpose, and `gofmt -l` walks the
-filesystem rather than Go's package wildcard, so it descends into `testdata/` unless told not to.
+numbers, `testdata/` must stay out of every formatter — `unparseable/main.go` does not parse, on
+purpose, and `gofmt -l` walks the filesystem rather than Go's package wildcard, so it descends into
+`testdata/` unless told not to.
+
+**`scripts/go_files.sh` is the one place that decides which files the formatters see**, and
+`scripts/format_golang.sh`, `scripts/format_imports.sh`, `scripts/goimports.sh`, and the `gofmt`
+check in `.github/workflows/formatting.yaml` all take their list from it. It asks the Go toolchain
+(`go list -e -f '{{.Dir}}' ./...`, then `find -maxdepth 1`) rather than writing out an exclusion
+list, so `vendor/`, `testdata/`, and any `_`- or `.`-prefixed directory are skipped for the same
+reason `go test ./...` skips them. That list used to be hand-written in each of those four places
+and had already drifted (`*/vendor/*` in the scripts, `./vendor/*` in the workflow).
+
+Two things about it are load-bearing. It **fails loudly rather than emitting an empty list** — an
+out-of-sync `vendor/modules.txt` makes `go list` exit non-zero, and a formatter that quietly formats
+nothing (or a CI check that quietly checks nothing) is worse than a stop. And its callers read it
+**through a file, not `< <(...)`**, because process substitution discards the exit status of what it
+runs, which is exactly how that empty list would have gone unnoticed.
 
 ### The coverage profile fixture
 
@@ -208,6 +227,11 @@ the list at the module root is worth a look.
 - **Normalize generics through `types.Func.Origin()`** so instantiations collapse to the generic.
 - Sort everything that reaches output (`report.go`), and prefer precise diagnostics over the go
   command's own stdout (`load.go`).
+- **Exclusions are withheld, not failed.** A declaration matching `Config.Exclude` leaves the report
+  entirely, exactly as `//tarp:ignore` does, so it drops out of both sides of the grade. The
+  patterns are compiled before anything is loaded (`newExclusion` in `analysis.go`), so a typo in a
+  config file costs no package load, and path patterns are resolved against the **module root** so
+  one file at the root means the same thing from every directory beneath it.
 - `Function` carries `Path` (absolute) and `EndLine` alongside `File` and `Line`, both `json:"-"`.
   They exist for the coverage view: a cover profile names files by package path and blocks by line,
   so joining the two needs a file to open and a range to fall inside. Keep them out of the JSON —
@@ -231,12 +255,26 @@ the list at the module root is worth a look.
   regardless when `NO_COLOR` is set or `TERM=dumb`. No dependency, on purpose.
 - The `--log-level` / `--service-name` persistent flags default from the `TARP_LOG_LEVEL` and
   `TARP_SERVICE_NAME` environment variables. The `--config` flag (default from
-  `TARP_CONFIG_FILEPATH`) points at a JSON config file; when set, `bootstrap` loads it via
-  `config.LoadFromFile` instead of the flag/env defaults.
-- Configuration is layered: defaults (or a JSON file) < `TARP_`-prefixed environment variables.
-  Env vars follow platform-go's nested `envPrefix` tags, e.g.
-  `TARP_OBSERVABILITY_LOGGING_LEVEL`. Give new `Config` fields both `envPrefix`/`env` and `json`
-  tags so they participate in `Load` and `LoadFromFile`.
+  `TARP_CONFIG_FILEPATH`) points at a JSON, YAML, or TOML config file; when set, `bootstrap` loads
+  it and skips discovery, because "use this one" and "use whatever this project keeps" are different
+  questions.
+- **Configuration is layered: defaults < config file < flags < `TARP_`-prefixed environment
+  variables.** A config file is what the project decided, a flag is what this run wants instead, and
+  an environment variable is what the machine running it insists on — which is how CI overrides a
+  checked-in file without editing it. The middle step works because cobra's `Flags().Changed` is
+  what distinguishes a typed flag from one sitting at its default; without it every default would
+  outrank the file and the file would do nothing. `resolveSettings` (and `resolveGates` for the
+  analyze-only settings) is the one place this happens.
+- Env vars follow platform-go's nested `envPrefix` tags, e.g. `TARP_OBSERVABILITY_LOGGING_LEVEL`
+  and `TARP_ANALYZE_MIN_SCORE`. Give new `Config` fields `envPrefix`/`env` **and all three of
+  `json`, `toml`, and `yaml`** so they participate in every loader equally: a `json` tag alone works
+  for JSON and, case-insensitively, for TOML, but yaml.v3 falls back to the lower-cased field name,
+  so `minScore` would silently bind nothing. Do not give them `envDefault` — caarlos0/env resets a
+  field carrying one whenever its variable is unset, which would mean a config file could never
+  supply that value at all.
+- `LoadFromFile` decodes over an already-built `Config` rather than into an empty one, so a file
+  says what it wants changed and keeps the default for everything else. The cost is that omission no
+  longer means "unset": to turn something off, name it and give it the empty value.
 - To enable real tracing/metrics/profiling, populate the sub-configs in `internal/config` and call
   `observability.Config.NewPillars`, or swap the noop constructors in `Config.NewPillars`.
 
@@ -247,8 +285,9 @@ drawn on: **a function whose whole body is a declaration is ignored with a reaso
 drives it; a function with a branch, a guard, or a failure mode gets a test that names it.**
 
 Ignored, therefore: the cobra constructors (`newRootCommand`, `newAnalyzeCommand`,
-`newCoverCommand`, `newVersionCommand`), which declare flags and help text and are driven end to
-end through cobra by the command tests; `cmd/main.run` and the config builders in
+`newCoverCommand`, `newVersionCommand`) and the flag registrations they call
+(`registerTargetFlags`, `registerAnalyzeFlags`), which declare flags and help text and are driven
+end to end through cobra by the command tests; `cmd/main.run` and the config builders in
 `cmd/tools/codegen/configs`, which sit in `cmd` packages `make test` excludes by design; and
 `envVarOptions`, which returns opaque platform-go options whose effect `Load` and `LoadFromFile`
 already assert.

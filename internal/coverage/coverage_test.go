@@ -28,7 +28,7 @@ var simpleDir = filepath.Join("..", "analysis", "testdata", "simple")
 func renderSimple(t *testing.T) string {
 	t.Helper()
 
-	report, err := analysis.Analyze(t.Context(), analysis.Config{Dir: simpleDir})
+	report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: simpleDir})
 	must.NoError(t, err)
 
 	var out strings.Builder

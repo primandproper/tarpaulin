@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/tarpaulin/internal/analysis"
 	"github.com/primandproper/tarpaulin/internal/config"
 
 	platformerrors "github.com/primandproper/platform-go/v10/errors"
@@ -298,6 +299,134 @@ func TestBootstrapAppliesTheConfigFile(t *testing.T) {
 	test.StrContains(t, out, "observability suite initialized")
 	test.StrContains(t, out, "from-file")
 	test.StrNotContains(t, out, "from-options")
+}
+
+func TestConfigFilePath(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a named file is used as given", func(t *testing.T) {
+		t.Parallel()
+
+		// Discovery is skipped entirely when --config names one, because the
+		// two answer different questions: "use this" and "use whatever this
+		// project keeps". Searching after being told where to look would only
+		// ever surprise somebody — so this does not even have to exist.
+		path, err := (&application{}).configFilePath("  /nowhere/named.json  ")
+		must.NoError(t, err)
+
+		test.Eq(t, "/nowhere/named.json", path)
+	})
+
+	t.Run("a blank one is no file at all", func(t *testing.T) {
+		t.Parallel()
+
+		// An unset TARP_CONFIG_FILEPATH that somebody exported as empty, or a
+		// --config="  ". Either way there is nothing named, so discovery runs —
+		// and this module's root holds no .tarp file.
+		path, err := (&application{}).configFilePath("   ")
+		must.NoError(t, err)
+
+		test.Eq(t, "", path)
+	})
+}
+
+// project writes a directory that looks like a Go module with a tarp config
+// file in it, and returns its path.
+func project(t *testing.T, configFile, contents string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+
+	must.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/project\n"), 0o600))
+	must.NoError(t, os.WriteFile(filepath.Join(dir, configFile), []byte(contents), 0o600))
+
+	return dir
+}
+
+// TestBootstrapDiscoversTheProjectConfigFile changes the working directory, so
+// it cannot be parallel — and neither can anything sharing a parent with it.
+func TestBootstrapDiscoversTheProjectConfigFile(t *testing.T) {
+	t.Chdir(project(t, ".tarp.yaml", "analyze:\n  strictness: any\n  minScore: 80\nexclude:\n  paths:\n    - mocks\n"))
+
+	app := &application{}
+
+	// No --config: the project's own file is found by looking upwards from the
+	// working directory, which is the whole point of it.
+	must.NoError(t, app.bootstrap(t.Context(), config.Options{}, ""))
+
+	cfg := app.configuration()
+	test.Eq(t, analysis.StrictnessAny.String(), cfg.Analyze.Strictness)
+	test.Eq(t, 80, cfg.Analyze.MinScore)
+	test.Eq(t, []string{"mocks"}, cfg.Exclude.Paths)
+
+	// What the file said nothing about is still the default, rather than the
+	// zero value a decode into an empty Config would have left.
+	test.Eq(t, config.DefaultFormat, cfg.Analyze.Format)
+}
+
+// TestBootstrapPrefersTheNamedConfigFile changes the working directory, so it
+// cannot be parallel.
+func TestBootstrapPrefersTheNamedConfigFile(t *testing.T) {
+	dir := project(t, ".tarp.yaml", "analyze:\n  strictness: any\n")
+	t.Chdir(dir)
+
+	named := filepath.Join(t.TempDir(), "named.json")
+	must.NoError(t, os.WriteFile(named, []byte(`{"analyze":{"strictness":"package"}}`), 0o600))
+
+	app := &application{}
+
+	// --config is "use this one", which is a different question from "use
+	// whatever this project keeps". Searching after being told where to look
+	// would only ever surprise somebody.
+	must.NoError(t, app.bootstrap(t.Context(), config.Options{}, named))
+
+	test.Eq(t, analysis.StrictnessPackage.String(), app.configuration().Analyze.Strictness)
+}
+
+// TestBootstrapReportsAnAmbiguousProjectConfig changes the working directory,
+// so it cannot be parallel.
+func TestBootstrapReportsAnAmbiguousProjectConfig(t *testing.T) {
+	dir := project(t, ".tarp.yaml", "analyze:\n  strictness: any\n")
+	must.NoError(t, os.WriteFile(filepath.Join(dir, ".tarp.toml"), []byte("[analyze]\n"), 0o600))
+	t.Chdir(dir)
+
+	app := &application{}
+
+	err := app.bootstrap(t.Context(), config.Options{}, "")
+
+	must.ErrorIs(t, err, config.ErrAmbiguousConfigFile)
+	// Nothing was stood up, which is what makes it safe for Execute to call
+	// shutdown on the way out regardless.
+	test.Nil(t, app.pillars)
+}
+
+// TestExecuteAppliesTheProjectConfigFile changes the working directory and
+// captures the process's streams, so it cannot be parallel.
+func TestExecuteAppliesTheProjectConfigFile(t *testing.T) {
+	// A whole module of its own, so that the config file under test governs the
+	// package under test and nothing else. Untested is called by Wrapper, which
+	// has a test — the case statement coverage cannot see.
+	dir := project(t, ".tarp.yaml", "exclude:\n  functions:\n    - Untested\n")
+
+	must.NoError(t, os.WriteFile(filepath.Join(dir, "thing.go"), []byte(
+		"package thing\n\nfunc Untested() string { return \"\" }\n\nfunc Wrapper() string { return Untested() }\n",
+	), 0o600))
+	must.NoError(t, os.WriteFile(filepath.Join(dir, "thing_test.go"), []byte(
+		"package thing\n\nimport \"testing\"\n\nfunc TestWrapper(t *testing.T) { _ = Wrapper() }\n",
+	), 0o600))
+
+	t.Chdir(dir)
+
+	stdout, stderr := capture(t, &os.Stdout), capture(t, &os.Stderr)
+
+	setArgs(t, "analyze")
+
+	must.NoError(t, Execute(t.Context()))
+
+	// Untested is withheld rather than failed, so it leaves both sides of the
+	// grade: one declaration, tested, and a clean report.
+	test.Eq(t, "Grade: 100% (1/1 functions)\n", stdout())
+	test.Eq(t, "", stderr())
 }
 
 // shutdownSpy stands in for a pillar with something to flush, so the context

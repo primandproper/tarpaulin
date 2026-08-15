@@ -220,7 +220,16 @@ linters:
       - linters:
           - gocheckcompilerdirectives
         text: '//go:fix'
+    # vendor$ and testdata$ are belt and braces. Nothing reaches this list from
+    # either one today, because golang_lint.sh runs `./...` and the Go wildcard
+    # does not descend into a vendor or testdata directory — but that is the
+    # invocation's doing, not this config's, and it stops being true the moment
+    # anybody lints an explicit path or a file list. testdata is the sharper
+    # edge of the two: the fixture corpus is deliberately unformatted, pinned to
+    # exact line numbers, and unparseable on purpose in one case.
     paths:
+      - vendor$
+      - testdata$
       - third_party$
       - builtin$
       - examples$

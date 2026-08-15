@@ -22,10 +22,9 @@ var errNoProfile = platformerrors.New("--html is required: pass the cover profil
 
 // coverOptions holds the flag values for one invocation.
 type coverOptions struct {
-	profile    string
-	output     string
-	pkg        string
-	strictness string
+	profile string
+	output  string
+	targetOptions
 }
 
 // newCoverCommand returns the `cover` subcommand, which renders a cover profile
@@ -46,8 +45,9 @@ func (a *application) newCoverCommand() *cobra.Command {
 			"alongside it are chosen exactly as `tarp analyze` chooses them — arguments take\n" +
 			"precedence over --package, a --package value naming an existing directory is\n" +
 			"expanded to ./... beneath it, and anything else is a go/packages pattern\n" +
-			"resolved from the working directory. The report goes to stdout unless --output\n" +
-			"names a file.",
+			"resolved from the working directory. The project's config file supplies the\n" +
+			"defaults for all of them. The report goes to stdout unless --output names a\n" +
+			"file.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.runCover(cmd, args, opts)
@@ -59,10 +59,8 @@ func (a *application) newCoverCommand() *cobra.Command {
 		"path to the cover `profile` written by go test -coverprofile")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "",
 		"write the report to this file instead of stdout")
-	cmd.Flags().StringVarP(&opts.pkg, "package", "p", ".",
-		"`directory` to analyze (expanded to ./... beneath it), or a go/packages pattern resolved from here; ignored when arguments are given")
-	cmd.Flags().StringVarP(&opts.strictness, "strictness", "s", analysis.StrictnessFile.String(),
-		"how close a reference must be to count: file, package, or any")
+
+	registerTargetFlags(cmd, &opts.targetOptions)
 
 	return cmd
 }
@@ -75,25 +73,19 @@ func (a *application) runCover(cmd *cobra.Command, args []string, opts *coverOpt
 		return errNoProfile
 	}
 
-	strictness, err := analysis.ParseStrictness(opts.strictness)
+	resolved, err := a.resolveSettings(cmd, args, &opts.targetOptions)
 	if err != nil {
 		return err
 	}
 
-	dir, patterns := resolveTarget(opts.pkg, args)
-
 	a.log().WithValues(map[string]any{
-		"dir":        dir,
-		"patterns":   strings.Join(patterns, " "),
-		"strictness": strictness.String(),
+		"dir":        resolved.dir,
+		"patterns":   strings.Join(resolved.patterns, " "),
+		"strictness": resolved.strictness.String(),
 		"profile":    profile,
 	}).Debug("rendering coverage")
 
-	report, err := analysis.Analyze(cmd.Context(), analysis.Config{
-		Dir:        dir,
-		Patterns:   patterns,
-		Strictness: strictness,
-	})
+	report, err := analysis.Analyze(cmd.Context(), resolved.analysisConfig())
 	if err != nil {
 		return err
 	}
@@ -108,7 +100,7 @@ func (a *application) runCover(cmd *cobra.Command, args []string, opts *coverOpt
 
 	if err = coverage.Render(cmd.Context(), &rendered, coverage.Config{
 		Report:  report,
-		Dir:     dir,
+		Dir:     resolved.dir,
 		Profile: profile,
 	}); err != nil {
 		return err

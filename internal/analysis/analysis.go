@@ -30,14 +30,22 @@ type Config struct {
 	// Patterns are go/packages patterns such as "./..." or a package path.
 	// Empty means "./...".
 	Patterns []string
+	// Exclude withholds declarations from the report by path and by name. The
+	// zero value withholds nothing.
+	Exclude Exclusions
 	// Strictness is how close a reference must be to count. The zero value is
 	// the strictest setting, which is the one worth defaulting to.
 	Strictness Strictness
 }
 
 // Analyze loads the requested packages and reports which of their functions
-// have no direct unit test.
-func Analyze(ctx context.Context, cfg Config) (*Report, error) {
+// have no direct unit test. A nil Config analyzes the current directory at the
+// strictest setting, which is what every field's zero value asks for.
+func Analyze(ctx context.Context, cfg *Config) (*Report, error) {
+	if cfg == nil {
+		cfg = &Config{}
+	}
+
 	dir := cfg.Dir
 	if dir == "" {
 		dir = "."
@@ -48,16 +56,34 @@ func Analyze(ctx context.Context, cfg Config) (*Report, error) {
 		patterns = []string{defaultPattern}
 	}
 
+	// Path patterns are relative to the module root, so that a config file
+	// means the same thing wherever in the module tarp is run from. Outside a
+	// module there is nothing to be relative to, and the analyzed directory is
+	// the closest thing to a project the tool has.
+	target := absolutePath(dir)
+
+	root := moduleRoot(target)
+	if root == "" {
+		root = target
+	}
+
+	// Compiled before anything is loaded: a malformed pattern is a typo in a
+	// config file, and finding out about it should not cost a package load.
+	excluded, err := newExclusion(root, cfg.Exclude)
+	if err != nil {
+		return nil, err
+	}
+
 	pkgs, fset, err := loadPackages(ctx, dir, patterns)
 	if err != nil {
 		return nil, err
 	}
 
-	declarations, warnings := collectDeclarations(fset, pkgs)
+	declarations, warnings := collectDeclarations(fset, pkgs, excluded)
 	references := collectReferences(fset, pkgs)
 
 	report := &Report{
-		Root:       moduleRoot(absolutePath(dir)),
+		Root:       moduleRoot(target),
 		Strictness: cfg.Strictness,
 		Functions:  make([]Function, 0, len(declarations)),
 		Sources:    collectSourceFiles(pkgs),

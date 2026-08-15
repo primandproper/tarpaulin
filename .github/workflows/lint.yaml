@@ -10,7 +10,8 @@ concurrency:
 
 name: lint
 jobs:
-  golang:
+  # The job key names the check run the ruleset requires; see build.yaml.
+  lint:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     strategy:

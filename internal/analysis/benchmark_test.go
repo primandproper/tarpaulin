@@ -27,7 +27,7 @@ const moduleRootDir = "../.."
 // how much source is loaded, not by how strictly it is graded, which is why
 // there is no per-strictness case here — the dial is a map lookup at the end.
 func BenchmarkAnalyze(b *testing.B) {
-	cases := map[string]analysis.Config{
+	cases := map[string]*analysis.Config{
 		// The floor: one four-function package, so the number is process
 		// overhead plus a single package load.
 		"one small package": {Dir: filepath.Join(corpusDir, "simple")},

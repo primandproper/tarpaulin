@@ -10,7 +10,8 @@ concurrency:
 
 name: formatting
 jobs:
-  golang:
+  # The job key names the check run the ruleset requires; see build.yaml.
+  formatting:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     strategy:

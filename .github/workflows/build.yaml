@@ -12,7 +12,11 @@ concurrency:
 
 name: build
 jobs:
-  golang:
+  # The job key names the check run, which is what the repository ruleset
+  # requires by name ("build (1.26.x)"). Four workflows used to call this job
+  # `golang`, so all four reported the same indistinguishable check and none of
+  # the required names ever arrived.
+  build:
     runs-on: ubuntu-latest
     strategy:
       matrix:

@@ -95,7 +95,7 @@ type Config struct {
 	Analyze       AnalyzeConfig        `envPrefix:"ANALYZE_"       json:"analyze,omitzero" toml:"analyze,omitempty" yaml:"analyze,omitempty"`
 }
 
-// AnalyzeConfig holds what `tarp analyze` and `tarp cover` do when nobody
+// AnalyzeConfig holds what `tarp analyze` and `tarp annotate` do when nobody
 // passes a flag. Every field is the default for the flag of the same name, and
 // a flag that was actually typed wins over it — see the CLI's resolve.
 //

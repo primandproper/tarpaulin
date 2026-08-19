@@ -14,14 +14,14 @@ import (
 // package, shared with the coverage package's own tests.
 var simpleProfile = filepath.Join("..", "coverage", "testdata", "simple.out")
 
-// runCoverCommand executes the cover subcommand as the binary would, and
+// runAnnotateCommand executes the annotate subcommand as the binary would, and
 // returns what it wrote to stdout and stderr.
-func runCoverCommand(t *testing.T, args ...string) (stdout, stderr string, err error) {
+func runAnnotateCommand(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 
 	out, errOut := new(bytes.Buffer), new(bytes.Buffer)
 
-	cmd := (&application{}).newCoverCommand()
+	cmd := (&application{}).newAnnotateCommand()
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
 	cmd.SetArgs(args)
@@ -31,14 +31,14 @@ func runCoverCommand(t *testing.T, args ...string) (stdout, stderr string, err e
 	return out.String(), errOut.String(), err
 }
 
-func TestCoverCommand(t *testing.T) {
+func TestAnnotateCommand(t *testing.T) {
 	t.Parallel()
 
 	t.Run("writes the report to stdout", func(t *testing.T) {
 		t.Parallel()
 
-		stdout, stderr, err := runCoverCommand(t,
-			"--html", simpleProfile, "--package", fixture("simple"))
+		stdout, stderr, err := runAnnotateCommand(t,
+			"--profile", simpleProfile, "--package", fixture("simple"))
 		must.NoError(t, err)
 
 		test.StrContains(t, stdout, "<title>simple: tarp coverage</title>")
@@ -52,8 +52,8 @@ func TestCoverCommand(t *testing.T) {
 
 		path := filepath.Join(t.TempDir(), "coverage.html")
 
-		stdout, _, err := runCoverCommand(t,
-			"--html", simpleProfile, "--package", fixture("simple"), "--output", path)
+		stdout, _, err := runAnnotateCommand(t,
+			"--profile", simpleProfile, "--package", fixture("simple"), "--output", path)
 		must.NoError(t, err)
 
 		test.Eq(t, "", stdout)
@@ -66,19 +66,19 @@ func TestCoverCommand(t *testing.T) {
 	t.Run("honors the strictness dial", func(t *testing.T) {
 		t.Parallel()
 
-		stdout, _, err := runCoverCommand(t,
-			"--html", simpleProfile, "--package", fixture("simple"), "--strictness", "any")
+		stdout, _, err := runAnnotateCommand(t,
+			"--profile", simpleProfile, "--package", fixture("simple"), "--strictness", "any")
 		must.NoError(t, err)
 
 		// B is untested at every level in this fixture; what the dial proves
-		// here is that cover accepts it and renders through the same path.
+		// here is that annotate accepts it and renders through the same path.
 		test.StrContains(t, stdout, `<span class="tarp-indirect" title="ran once; B has no direct test">`)
 	})
 
 	t.Run("requires a profile", func(t *testing.T) {
 		t.Parallel()
 
-		_, _, err := runCoverCommand(t, "--package", fixture("simple"))
+		_, _, err := runAnnotateCommand(t, "--package", fixture("simple"))
 
 		must.ErrorIs(t, err, errNoProfile)
 	})
@@ -86,7 +86,7 @@ func TestCoverCommand(t *testing.T) {
 	t.Run("rejects an unknown strictness", func(t *testing.T) {
 		t.Parallel()
 
-		_, _, err := runCoverCommand(t, "--html", simpleProfile, "--strictness", "nonsense")
+		_, _, err := runAnnotateCommand(t, "--profile", simpleProfile, "--strictness", "nonsense")
 
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "unknown strictness")
@@ -95,7 +95,7 @@ func TestCoverCommand(t *testing.T) {
 	t.Run("reports a package it cannot analyze", func(t *testing.T) {
 		t.Parallel()
 
-		_, _, err := runCoverCommand(t, "--html", simpleProfile, "--package", fixture("broken_package"))
+		_, _, err := runAnnotateCommand(t, "--profile", simpleProfile, "--package", fixture("broken_package"))
 
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "could not be analyzed")
@@ -104,8 +104,8 @@ func TestCoverCommand(t *testing.T) {
 	t.Run("reports a profile it cannot read", func(t *testing.T) {
 		t.Parallel()
 
-		_, _, err := runCoverCommand(t,
-			"--html", filepath.Join(t.TempDir(), "missing.out"), "--package", fixture("simple"))
+		_, _, err := runAnnotateCommand(t,
+			"--profile", filepath.Join(t.TempDir(), "missing.out"), "--package", fixture("simple"))
 
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "parsing cover profile")
@@ -114,8 +114,8 @@ func TestCoverCommand(t *testing.T) {
 	t.Run("warns about a reasonless ignore directive", func(t *testing.T) {
 		t.Parallel()
 
-		stdout, stderr, err := runCoverCommand(t,
-			"--html", simpleProfile, "--package", fixture("ignore_directive"))
+		stdout, stderr, err := runAnnotateCommand(t,
+			"--profile", simpleProfile, "--package", fixture("ignore_directive"))
 		must.NoError(t, err)
 
 		// Warnings about the source go to stderr, exactly as they do under

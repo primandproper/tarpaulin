@@ -17,27 +17,28 @@ import (
 // about somebody's source, written for whoever asked for it.
 const reportFileMode = 0o600
 
-// errNoProfile is returned when `cover` is invoked without a profile to render.
-var errNoProfile = platformerrors.New("--html is required: pass the cover profile to render")
+// errNoProfile is returned when `annotate` is invoked without a profile to
+// render.
+var errNoProfile = platformerrors.New("--profile is required: pass the cover profile to annotate")
 
-// coverOptions holds the flag values for one invocation.
-type coverOptions struct {
+// annotateOptions holds the flag values for one invocation.
+type annotateOptions struct {
 	profile string
 	output  string
 	targetOptions
 }
 
-// newCoverCommand returns the `cover` subcommand, which renders a cover profile
-// with tarp's verdict layered over it.
+// newAnnotateCommand returns the `annotate` subcommand, which renders a cover
+// profile with tarp's verdict layered over it.
 //
-//tarp:ignore -- declaration only: flags and help text, driven end to end by TestCoverCommand through cobra rather than around it
-func (a *application) newCoverCommand() *cobra.Command {
-	opts := &coverOptions{}
+//tarp:ignore -- declaration only: flags and help text, driven end to end by TestAnnotateCommand through cobra rather than around it
+func (a *application) newAnnotateCommand() *cobra.Command {
+	opts := &annotateOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "cover --html=<profile> [packages]",
-		Short: "Render a cover profile as HTML, colored by which functions have a direct test.",
-		Long: "Cover renders the HTML report `go tool cover -html` renders, with the green\n" +
+		Use:   "annotate --profile=<profile> [packages]",
+		Short: "Annotate a cover profile as HTML, colored by which functions have a direct test.",
+		Long: "Annotate renders the HTML report `go tool cover -html` renders, with the green\n" +
 			"split in two: green for a function a TestXxx body references directly, yellow\n" +
 			"for one that merely ran on the way to somebody else's assertion. Red is still\n" +
 			"code that never ran, and anything tarp does not grade is left grey.\n\n" +
@@ -50,12 +51,12 @@ func (a *application) newCoverCommand() *cobra.Command {
 			"file.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.runCover(cmd, args, opts)
+			return a.runAnnotate(cmd, args, opts)
 		},
 	}
 
 	// The backticks name the placeholder cobra prints for the flag's argument.
-	cmd.Flags().StringVar(&opts.profile, "html", "",
+	cmd.Flags().StringVar(&opts.profile, "profile", "",
 		"path to the cover `profile` written by go test -coverprofile")
 	cmd.Flags().StringVarP(&opts.output, "output", "o", "",
 		"write the report to this file instead of stdout")
@@ -65,9 +66,9 @@ func (a *application) newCoverCommand() *cobra.Command {
 	return cmd
 }
 
-// runCover analyzes the requested packages and renders the profile against
+// runAnnotate analyzes the requested packages and renders the profile against
 // them.
-func (a *application) runCover(cmd *cobra.Command, args []string, opts *coverOptions) error {
+func (a *application) runAnnotate(cmd *cobra.Command, args []string, opts *annotateOptions) error {
 	profile := strings.TrimSpace(opts.profile)
 	if profile == "" {
 		return errNoProfile

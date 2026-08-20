@@ -77,7 +77,8 @@ Run a single test:
 go test -run TestName ./internal/config/...
 ```
 
-Linting runs in Docker (`golangci/golangci-lint` image). Formatting runs locally via `go tool` with
+Linting runs in Docker (`golangci/golangci-lint` image), against a copy of the tree rather
+than a bind mount — see Linting below. Formatting runs locally via `go tool` with
 `gci`, `goimports`, `fieldalignment`, `tagalign`, and `gofmt` (declared in the `tool` block of go.mod).
 
 This repository does **not** vendor dependencies (platform-go's dependency tree is large); builds and
@@ -309,3 +310,13 @@ is hard to test" is not one.
 - `depguard` carries platform-go's ban list verbatim (testify, `pkg/errors`, `io/ioutil`,
   `math/rand` v1, `dgrijalva/jwt-go`). Use `shoenig/test` + `shoenig/test/must` for assertions and
   `matryer/moq` for mocks; do not reintroduce testify.
+- **`make lint` copies the tree into the container rather than bind-mounting it.** Linting a
+  Docker Desktop bind mount in place does not finish inside golangci-lint's own 30-minute
+  timeout; the same run against a copy takes ~190s. It is not the module cache (a cold
+  `go mod download` in the container is 12s), not the build cache (a cold native run and a
+  warm one are both ~390s), not the linter version, and not the volume of I/O (the whole
+  tree walks over the mount in ~130ms). `scripts/golang_lint.sh` carries the measurements.
+  The cost is that `--fix` cannot work — `make format` is where this repo rewrites files.
+- Killing `make lint` does not stop the container it started, which is how an interrupted run
+  leaves a linter competing with the next one. The script names its container and traps, so
+  the orphan is cleaned up; if lint is ever mysteriously slow, `docker ps` first.

@@ -14,7 +14,7 @@ inputs:
       stricter analyzer must never break a consumer's CI on a day they changed
       nothing.
     required: false
-    default: 'v0.1.0'
+    default: 'v0.2.0'
   package:
     description: >-
       A directory (analyzed with everything beneath it) or a go/packages

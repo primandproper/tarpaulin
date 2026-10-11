@@ -4,7 +4,7 @@ import (
 	"path"
 	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
 )
 
 // Exclusions withhold declarations from the report by where they live and by

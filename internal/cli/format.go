@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
 )
 
 // format selects how a report is rendered. It is a CLI concern rather than an

@@ -11,13 +11,13 @@ concurrency:
 name: unit tests
 jobs:
   # The job key names the check run the ruleset requires — "unit-tests
-  # (1.26.x)", hyphenated, which is why this key is not "unit_tests" like the
+  # (1.27.x)", hyphenated, which is why this key is not "unit_tests" like the
   # file or "unit tests" like the workflow. See build.yaml.
   unit-tests:
     timeout-minutes: 25
     strategy:
       matrix:
-        go-version: ['1.26.x']
+        go-version: ['1.27.x']
     runs-on: ubuntu-latest
     steps:
       - name: Install Go

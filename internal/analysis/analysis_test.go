@@ -10,7 +10,7 @@ import (
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -123,7 +123,7 @@ func TestAnalyze(t *testing.T) {
 		report, err := analysis.Analyze(t.Context(), &analysis.Config{Dir: filepath.Join(corpusDir, "simple")})
 		must.NoError(t, err)
 
-		// Deliberately the standard library rather than platform-go's encoding
+		// Deliberately the standard library rather than primitives-go's encoding
 		// package: what is under test here is that a Report handed to any
 		// ordinary Go consumer encodes to the documented shape.
 		encoded, err := json.MarshalIndent(report, "", "  ")

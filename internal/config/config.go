@@ -1,5 +1,5 @@
 // Package config assembles the application's configuration, most notably the
-// observability settings that the platform-go observability suite consumes.
+// observability settings that the primitives-go observability suite consumes.
 //
 // The configuration is built in Go with sensible, zero-dependency defaults so
 // the binary boots out of the box: structured slog logging plus noop tracing,
@@ -7,7 +7,7 @@
 // (see Options), which is how the CLI threads its flags and environment into
 // the platform configuration.
 //
-// Two loaders build on those defaults using platform-go's config package:
+// Two loaders build on those defaults using primitives-go's config package:
 //
 //   - Load overlays environment variables (prefixed with EnvVarPrefix) on top of
 //     the defaults, so any field can be tuned without a config file — the
@@ -33,14 +33,14 @@ import (
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
 
-	platformconfig "github.com/primandproper/platform-go/v10/config"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	loggingcfg "github.com/primandproper/platform-go/v10/observability/logging/config"
-	metricsnoop "github.com/primandproper/platform-go/v10/observability/metrics/noop"
-	profilingnoop "github.com/primandproper/platform-go/v10/observability/profiling/noop"
-	tracingnoop "github.com/primandproper/platform-go/v10/observability/tracing/noop"
+	platformconfig "github.com/primandproper/primitives-go/v2/config"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
+	"github.com/primandproper/primitives-go/v2/observability"
+	"github.com/primandproper/primitives-go/v2/observability/logging"
+	loggingcfg "github.com/primandproper/primitives-go/v2/observability/logging/config"
+	metricsnoop "github.com/primandproper/primitives-go/v2/observability/metrics/noop"
+	profilingnoop "github.com/primandproper/primitives-go/v2/observability/profiling/noop"
+	tracingnoop "github.com/primandproper/primitives-go/v2/observability/tracing/noop"
 )
 
 // DefaultServiceName is the service name reported by the observability suite
@@ -75,9 +75,9 @@ const (
 )
 
 // Config is the application configuration: what a project wants graded and how,
-// plus the platform-go observability configuration the binary boots on.
+// plus the primitives-go observability configuration the binary boots on.
 //
-// The struct tags let platform-go's config package populate the config from
+// The struct tags let primitives-go's config package populate the config from
 // environment variables (envPrefix/env) and from a file in any of the three
 // formats Discover looks for. Give new fields all four tags so they participate
 // in Load, LoadFromFile, and every format equally — json alone works for JSON
@@ -183,7 +183,7 @@ func New(opts Options) *Config {
 // value the parser applies. Because the hook uses the standard-library slog
 // default logger, these lines appear only when that logger is at debug level.
 //
-//tarp:ignore -- returns opaque platform-go functional options; there is nothing to assert about them that Load and LoadFromFile's tests do not already assert about their effect
+//tarp:ignore -- returns opaque primitives-go functional options; there is nothing to assert about them that Load and LoadFromFile's tests do not already assert about their effect
 func envVarOptions() []platformconfig.Option {
 	return []platformconfig.Option{
 		platformconfig.WithPrefix(EnvVarPrefix),
@@ -269,7 +269,7 @@ func (c *Config) Validate(ctx context.Context) error {
 // c.Observability.NewPillars(ctx) instead — it wires OTel/Cloud providers from
 // the same config — or replace the noop constructors below with your own.
 func (c *Config) NewPillars(ctx context.Context) (*observability.Pillars, error) {
-	logger, err := c.Observability.Logging.NewLogger(ctx)
+	logger, err := loggingcfg.NewLogger(ctx, &c.Observability.Logging)
 	if err != nil {
 		return nil, err
 	}

@@ -3,9 +3,9 @@ package main
 import (
 	"github.com/primandproper/tarpaulin/internal/config"
 
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	loggingcfg "github.com/primandproper/platform-go/v10/observability/logging/config"
+	"github.com/primandproper/primitives-go/v2/observability"
+	"github.com/primandproper/primitives-go/v2/observability/logging"
+	loggingcfg "github.com/primandproper/primitives-go/v2/observability/logging/config"
 )
 
 // Each builder returns a fully-formed *config.Config for one environment. The
@@ -14,7 +14,7 @@ import (
 // them to the JSON files under config/. Grow a builder as the application's
 // Config grows (database, HTTP server, real telemetry, ...); the leftover
 // observability pillars (tracing, metrics, profiling) stay at their zero values,
-// which platform-go resolves to noop providers.
+// which primitives-go resolves to noop providers.
 
 // buildLocalDevConfig is the config a developer runs against locally: structured
 // slog logging at debug so everything is visible on the console.

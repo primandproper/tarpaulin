@@ -3,7 +3,7 @@ package analysis
 import (
 	"fmt"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
 )
 
 // Strictness selects how close a reference has to be to a declaration before it

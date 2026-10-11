@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/primandproper/platform-go/v10/encoding"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/primitives-go/v2/encoding"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
 )
 
 // FileStem is the name a project's config file has, before its extension. The
@@ -121,7 +121,7 @@ func LoadFromFile(ctx context.Context, path string) (*Config, error) {
 	// is the whole of the overlay: every one of these three decoders leaves a
 	// field alone when the document does not mention it, so the defaults survive
 	// exactly the keys the file declines to have an opinion about. It is why
-	// this reads the file itself instead of calling platform-go's
+	// this reads the file itself instead of calling primitives-go's
 	// files.DecodeFile, which necessarily returns a zero value to decode into.
 	cfg := New(Options{})
 	if err = encoding.NewClientEncoder(contentType).Unmarshal(ctx, contents, cfg); err != nil {

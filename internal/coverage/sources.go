@@ -9,7 +9,7 @@ import (
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
 
 	"golang.org/x/tools/cover"
 	"golang.org/x/tools/go/packages"

@@ -1,5 +1,5 @@
 // Package cli wires the command-line interface together and bootstraps the
-// platform-go observability suite that the rest of the application builds on.
+// primitives-go observability suite that the rest of the application builds on.
 //
 // The CLI is tarp's single entrypoint: `analyze` reports the functions in a
 // package that carry no direct unit test, `annotate` renders the same verdict
@@ -18,9 +18,9 @@ import (
 
 	"github.com/primandproper/tarpaulin/internal/config"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
-	"github.com/primandproper/platform-go/v10/observability"
-	"github.com/primandproper/platform-go/v10/observability/logging"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
+	"github.com/primandproper/primitives-go/v2/observability"
+	"github.com/primandproper/primitives-go/v2/observability/logging"
 
 	"github.com/spf13/cobra"
 )

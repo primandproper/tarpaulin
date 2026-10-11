@@ -97,9 +97,9 @@ tarp analyze [packages] [--package=.] [--strictness=file|package|any]
                         [--exclude=<glob>] [--exclude-function=<glob>]
                         [--fail-on-found] [--min-score=N]
                         [--format=text|json|sarif|markdown]
-tarp cover --html=<profile> [packages] [--package=.] [--output=<file>]
-                            [--strictness=file|package|any]
-                            [--exclude=<glob>] [--exclude-function=<glob>]
+tarp annotate --profile=<profile> [packages] [--package=.] [--output=<file>]
+                                  [--strictness=file|package|any]
+                                  [--exclude=<glob>] [--exclude-function=<glob>]
 ```
 
 | Flag              | Default | Meaning                                                                  |
@@ -112,8 +112,8 @@ tarp cover --html=<profile> [packages] [--package=.] [--output=<file>]
 | `--min-score`, `-m` | `0`   | Exit non-zero when the grade falls below this percentage (0 to 100; `0` never fails) |
 | `--format`, `-f`  | `text`  | `text`, `json`, `sarif`, or `markdown` — see below. Warnings always go to stderr |
 | `--json`, `-j`    | `false` | Shorthand for `--format=json`                                            |
-| `--html`          | —       | `cover` only: the profile from `go test -coverprofile` to render          |
-| `--output`, `-o`  | stdout  | `cover` only: write the report to this file instead                       |
+| `--profile`       | —       | `annotate` only: the profile from `go test -coverprofile` to render       |
+| `--output`, `-o`  | stdout  | `annotate` only: write the report to this file instead                    |
 
 Every default in that table can be moved into a `.tarp.yaml` at the project
 root, and a flag typed here overrides it — see [Configuration](#configuration).
@@ -354,11 +354,11 @@ bag. `--min-score` is unaffected by the format and remains how a build fails.
 
 ```bash
 go test -coverprofile=coverage.out ./...
-tarp cover --html=coverage.out --package ./... -o coverage.html
+tarp annotate --profile=coverage.out --package ./... -o coverage.html
 ```
 
-`cover` renders the page `go tool cover -html` renders — same layout, same file
-picker, same spans in the same places — with the green split in two:
+`annotate` renders the page `go tool cover -html` renders — same layout, same
+file picker, same spans in the same places — with the green split in two:
 
 | Color      | Meaning                                                              |
 | ---------- | -------------------------------------------------------------------- |
@@ -527,7 +527,7 @@ cmd/main/                      # entrypoint: signal-cancellable context -> cli.E
 internal/analysis/             # the analyzer: load, declarations, references, strictness
 internal/analysis/testdata/    # the fixture corpus, one directory per case
 internal/coverage/             # the cover profile -> annotated HTML renderer
-internal/cli/                  # cobra root command, analyze/cover subcommands, output
+internal/cli/                  # cobra root command, analyze/annotate subcommands, output
 internal/config/               # assembles observability.Config and builds the pillars
 version/                       # build metadata, injected via -ldflags by scripts/build.sh
 scripts/                       # build/format/lint/test/shellcheck helpers
@@ -648,7 +648,7 @@ under `go/types`; the fixtures that were expensive to pass in 2017 are kept in
 the corpus precisely because they once were.
 
 The one idea carried forward whole is the three-color coverage view, which is
-what `tarp cover --html` renders — rebuilt against today's `go tool cover`
+what `tarp annotate --profile` renders — rebuilt against today's `go tool cover`
 output rather than the 2017 fork of it.
 
 ## License

@@ -77,7 +77,7 @@ func resolveSources(
 }
 
 // indexReport keys the files the analysis already loaded the way a cover
-// profile spells them. A nil report — `cover` renders one, ungraded — indexes
+// profile spells them. A nil report — `annotate` renders one, ungraded — indexes
 // nothing, which sends every package to the load below.
 func indexReport(report *analysis.Report) map[string]string {
 	if report == nil {

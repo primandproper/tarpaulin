@@ -2,9 +2,9 @@
 // platform-go observability suite that the rest of the application builds on.
 //
 // The CLI is tarp's single entrypoint: `analyze` reports the functions in a
-// package that carry no direct unit test, `cover` renders the same verdict over
-// a coverage profile, and new subcommands hang off the root command alongside
-// them.
+// package that carry no direct unit test, `annotate` renders the same verdict
+// over a coverage profile, and new subcommands hang off the root command
+// alongside them.
 package cli
 
 import (
@@ -120,7 +120,7 @@ func (a *application) newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", envOr(ConfigFilePathEnvVar, ""),
 		"path to a JSON, YAML, or TOML config `file`; when set, it is loaded instead of the project's own .tarp file")
 
-	rootCmd.AddCommand(a.newAnalyzeCommand(), a.newCoverCommand(), a.newVersionCommand())
+	rootCmd.AddCommand(a.newAnalyzeCommand(), a.newAnnotateCommand(), a.newVersionCommand())
 
 	return rootCmd
 }

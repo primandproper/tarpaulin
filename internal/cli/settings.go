@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// The flags analyze and cover share. They are named constants because the
+// The flags analyze and annotate share. They are named constants because the
 // resolution below asks cobra which of them were actually typed, and a typo in
 // one of those strings is a flag that silently stops working.
 const (
@@ -20,7 +20,7 @@ const (
 )
 
 // targetOptions holds the flag values that decide what gets analyzed. Both
-// analyze and cover load packages the same way, so both embed it.
+// analyze and annotate load packages the same way, so both embed it.
 type targetOptions struct {
 	pkg              string
 	strictness       string

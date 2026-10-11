@@ -26,7 +26,6 @@ SHELLCHECK_IMAGE := koalaman/shellcheck:stable
 CONTAINER_RUNNER      := docker
 RUN_CONTAINER         := $(CONTAINER_RUNNER) run --rm --volume $(PWD):$(PWD) --workdir=$(PWD) --network=host
 RUN_CONTAINER_AS_USER := $(RUN_CONTAINER) --user $(MYSELF):$(MY_GROUP)
-LINTER                := $(RUN_CONTAINER) $(LINTER_IMAGE) golangci-lint
 
 ## non-PHONY folders/files
 
@@ -90,7 +89,7 @@ fmt: format
 
 .PHONY: golang_lint
 golang_lint:
-	@$(SCRIPTS_DIR)/golang_lint.sh $(CONTAINER_RUNNER) $(LINTER_IMAGE) "$(LINTER)"
+	@$(SCRIPTS_DIR)/golang_lint.sh $(CONTAINER_RUNNER) $(LINTER_IMAGE)
 
 .PHONY: shellcheck
 shellcheck:

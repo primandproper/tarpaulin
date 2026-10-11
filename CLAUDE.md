@@ -28,8 +28,8 @@ read the fixture for a rule before changing it.
   shape).
 - `internal/analysis/testdata/` — the fixture corpus, one directory per semantic case. See
   Testing below; these are *not* formatted or linted, deliberately.
-- `internal/coverage/` — the `cover` renderer. `coverage.go` (the `Render` entrypoint, `Config`, and
-  the per-file totals), `sources.go` (turning the package paths a profile names into files on disk,
+- `internal/coverage/` — the renderer behind `tarp annotate`. `coverage.go` (the `Render`
+  entrypoint, `Config`, and the per-file totals), `sources.go` (turning the package paths a profile names into files on disk,
   from the analysis' own file list where it can and a `NeedName`-only load where it cannot),
   `annotate.go` (the boundary walk and the four verdicts), `html.go` (the page template).
   `testdata/simple.out` is a real profile over `analysis/testdata/simple`, pinned to that fixture's
@@ -40,7 +40,7 @@ read the fixture for a rule before changing it.
   the Go, never the JSON, then re-run `make configs`.
 - `config/` — generated per-environment config files (`localdev.json`, `production.json`); committed so
   they stay reviewable, and loadable at runtime via `--config`.
-- `internal/cli/` — cobra root command, the `analyze` and `cover` subcommands, terminal output,
+- `internal/cli/` — cobra root command, the `analyze` and `annotate` subcommands, terminal output,
   observability bootstrap + shutdown. `settings.go` holds the flags both subcommands share and
   `resolveSettings`, which reconciles the config file, the flags, and the environment into what one
   invocation actually runs with.
@@ -77,7 +77,8 @@ Run a single test:
 go test -run TestName ./internal/config/...
 ```
 
-Linting runs in Docker (`golangci/golangci-lint` image). Formatting runs locally via `go tool` with
+Linting runs in Docker (`golangci/golangci-lint` image), against a copy of the tree rather
+than a bind mount — see Linting below. Formatting runs locally via `go tool` with
 `gci`, `goimports`, `fieldalignment`, `tagalign`, and `gofmt` (declared in the `tool` block of go.mod).
 
 This repository does **not** vendor dependencies (platform-go's dependency tree is large); builds and
@@ -238,17 +239,17 @@ the list at the module root is worth a look.
   the wire shape is pinned verbatim in `analysis_test.go`.
 - `Report.Sources` carries the load's own file list, keyed by import path, for the same reader: a
   load is ~99.9% of an analysis, so the thing worth handing a caller is the load it would otherwise
-  repeat. `cover` resolves the profile's package-relative names against it and loads only what the
-  report cannot account for. It is one map because `Report` is passed by value to its own methods
+  repeat. `annotate` resolves the profile's package-relative names against it and loads only what
+  the report cannot account for. It is one map because `Report` is passed by value to its own methods
   (`MarshalJSON` has to be reachable from a value) and gocritic holds that value to a size.
 
 ## CLI conventions worth knowing
 
-- Observability logs are structured slog written to **stdout**. `version`, `analyze`, and `cover`
+- Observability logs are structured slog written to **stdout**. `version`, `analyze`, and `annotate`
   print to stdout and emit nothing at the default `info` level, so `tarp analyze --json` and
-  `tarp cover --html` stay machine-parseable. Warnings go to **stderr** for the same reason.
-- `cover` renders into memory before writing: a report that fails halfway through should not land on
-  disk over the last good one. It opens no browser, on purpose — `--output` or stdout.
+  `tarp annotate --profile` stay machine-parseable. Warnings go to **stderr** for the same reason.
+- `annotate` renders into memory before writing: a report that fails halfway through should not
+  land on disk over the last good one. It opens no browser, on purpose — `--output` or stdout.
 - The root command sets `SilenceErrors`; `Execute` prints failures itself so that `--fail-on-found`
   can exit non-zero without stapling an `Error:` line under the report it just printed.
 - Color is decided once in `internal/cli/color.go`: off unless stdout is a character device, and off
@@ -285,7 +286,7 @@ drawn on: **a function whose whole body is a declaration is ignored with a reaso
 drives it; a function with a branch, a guard, or a failure mode gets a test that names it.**
 
 Ignored, therefore: the cobra constructors (`newRootCommand`, `newAnalyzeCommand`,
-`newCoverCommand`, `newVersionCommand`) and the flag registrations they call
+`newAnnotateCommand`, `newVersionCommand`) and the flag registrations they call
 (`registerTargetFlags`, `registerAnalyzeFlags`), which declare flags and help text and are driven
 end to end through cobra by the command tests; `cmd/main.run` and the config builders in
 `cmd/tools/codegen/configs`, which sit in `cmd` packages `make test` excludes by design; and
@@ -309,3 +310,13 @@ is hard to test" is not one.
 - `depguard` carries platform-go's ban list verbatim (testify, `pkg/errors`, `io/ioutil`,
   `math/rand` v1, `dgrijalva/jwt-go`). Use `shoenig/test` + `shoenig/test/must` for assertions and
   `matryer/moq` for mocks; do not reintroduce testify.
+- **`make lint` copies the tree into the container rather than bind-mounting it.** Linting a
+  Docker Desktop bind mount in place does not finish inside golangci-lint's own 30-minute
+  timeout; the same run against a copy takes ~190s. It is not the module cache (a cold
+  `go mod download` in the container is 12s), not the build cache (a cold native run and a
+  warm one are both ~390s), not the linter version, and not the volume of I/O (the whole
+  tree walks over the mount in ~130ms). `scripts/golang_lint.sh` carries the measurements.
+  The cost is that `--fix` cannot work — `make format` is where this repo rewrites files.
+- Killing `make lint` does not stop the container it started, which is how an interrupted run
+  leaves a linter competing with the next one. The script names its container and traps, so
+  the orphan is cleaned up; if lint is ever mysteriously slow, `docker ps` first.

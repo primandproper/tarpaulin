@@ -64,10 +64,10 @@ func TestReportScore(t *testing.T) {
 	})
 }
 
-// TestReportMarshalJSON uses encoding/json rather than platform-go's encoding
+// TestReportMarshalJSON uses encoding/json rather than primitives-go's encoding
 // package on purpose: Report's job here is to satisfy json.Marshaler for
 // whoever holds one, and that is the contract worth pinning. The bytes are
-// produced by platform-go either way — MarshalJSON calls encoding.EncodeJSON.
+// produced by primitives-go either way — MarshalJSON calls encoding.EncodeJSON.
 func TestPackageScore(t *testing.T) {
 	t.Parallel()
 

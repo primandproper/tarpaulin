@@ -8,8 +8,8 @@ import (
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
 
-	"github.com/primandproper/platform-go/v10/observability/logging"
-	loggingcfg "github.com/primandproper/platform-go/v10/observability/logging/config"
+	"github.com/primandproper/primitives-go/v2/observability/logging"
+	loggingcfg "github.com/primandproper/primitives-go/v2/observability/logging/config"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

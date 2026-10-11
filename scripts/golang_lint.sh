@@ -21,7 +21,7 @@ set -euo pipefail
 # files.
 
 CONTAINER_RUNNER="${1:-docker}"
-LINTER_IMAGE="${2:-golangci/golangci-lint:v2.10.1}"
+LINTER_IMAGE="${2:-golangci/golangci-lint:v2.14.0}"
 
 # Named so the trap below can reach it, and PID-suffixed so two runs cannot
 # collide. Killing the client does not stop the container it started, which is

@@ -81,7 +81,7 @@ known way to be satisfied cheaply.
 
 ## Quickstart
 
-Requires **Go 1.26+**. [Docker](https://www.docker.com/) is used for linting and
+Requires **Go 1.27+**. [Docker](https://www.docker.com/) is used for linting and
 shellcheck.
 
 ```bash
@@ -626,7 +626,7 @@ is the only way to say "grade the generated code too, just this once".
 
 ### Observability
 
-The CLI also inherits two settings from its platform-go scaffolding:
+The CLI also inherits two settings from its primitives-go scaffolding:
 
 | Flag             | Environment variable | Default | Values                           |
 | ---------------- | -------------------- | ------- | -------------------------------- |

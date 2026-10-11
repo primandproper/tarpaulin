@@ -8,7 +8,7 @@ import (
 	"github.com/primandproper/tarpaulin/internal/analysis"
 	"github.com/primandproper/tarpaulin/internal/coverage"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
 
 	"github.com/spf13/cobra"
 )

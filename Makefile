@@ -19,7 +19,7 @@ TOTAL_PACKAGE_LIST := `go list $(THIS)/...`
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown)
 
 # CONTAINER VERSIONS
-LINTER_IMAGE     := golangci/golangci-lint:v2.10.1
+LINTER_IMAGE     := golangci/golangci-lint:v2.14.0
 SHELLCHECK_IMAGE := koalaman/shellcheck:stable
 
 # COMMANDS
@@ -35,7 +35,7 @@ $(ARTIFACTS_DIR):
 ## PREREQUISITES
 
 # setup prepares a fresh clone: creates the artifacts dir and downloads the
-# module cache. This template does not vendor (platform-go's dependency tree is
+# module cache. This template does not vendor (primitives-go's dependency tree is
 # large); builds and tests run against the module cache.
 .PHONY: setup
 setup: $(ARTIFACTS_DIR)
@@ -123,7 +123,7 @@ run:
 
 # release cross-compiles the archives published on a GitHub release, so
 # consumers of the Action download a binary instead of paying `go install`
-# against platform-go's module graph. VERSION defaults to whatever git can
+# against primitives-go's module graph. VERSION defaults to whatever git can
 # describe, which is what makes a local `make release` a useful dry run.
 .PHONY: release
 release:

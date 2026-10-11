@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"slices"
 
-	"github.com/primandproper/platform-go/v10/encoding"
+	"github.com/primandproper/primitives-go/v2/encoding"
 )
 
 // perfectScore is the grade reported for a package with nothing to grade.
@@ -80,7 +80,7 @@ type reportJSON struct {
 }
 
 // MarshalJSON implements json.Marshaler, so that anything holding a Report can
-// hand it to a standard encoder. The bytes themselves come from platform-go's
+// hand it to a standard encoder. The bytes themselves come from primitives-go's
 // encoding package, which keeps the content type one decision made in one
 // place; EncodeJSON returns exactly what json.Marshal would, with no trailing
 // newline.

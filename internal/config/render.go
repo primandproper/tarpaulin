@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
 )
 
 // Environment pairs a named, real Config object with the path its rendered JSON
@@ -41,7 +41,7 @@ func Render(ctx context.Context, envs []Environment, validate bool) error {
 	for i := range envs {
 		env := &envs[i]
 
-		// json.MarshalIndent rather than platform-go's encoding package, which
+		// json.MarshalIndent rather than primitives-go's encoding package, which
 		// is otherwise this repo's way to turn values into bytes: these files are
 		// committed to be read and reviewed, and encoding deliberately does not
 		// alter its marshaler's output, so it has no indentation to offer.

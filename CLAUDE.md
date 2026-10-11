@@ -5,8 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 `github.com/primandproper/tarpaulin` — **tarp**, a tool that finds Go functions with no direct unit
-test. Built on the [`platform-go`](https://github.com/primandproper/platform-go) application template
-(hence the observability scaffolding). Go 1.26.
+test. Started from the [`platform-go`](https://github.com/primandproper/platform-go) application template
+(hence the observability scaffolding), and depends only on
+[`primitives-go`](https://github.com/primandproper/primitives-go), the tier platform-go is itself built
+from: tarp has no product nouns, so it has no use for the tier that ships them. Go 1.27.
 
 The module path is `tarpaulin`; every user-visible name is `tarp` — the binary, the cobra `Use:`, the
 `//tarp:ignore` directive, and the `TARP_` env-var prefix.
@@ -81,7 +83,7 @@ Linting runs in Docker (`golangci/golangci-lint` image), against a copy of the t
 than a bind mount — see Linting below. Formatting runs locally via `go tool` with
 `gci`, `goimports`, `fieldalignment`, `tagalign`, and `gofmt` (declared in the `tool` block of go.mod).
 
-This repository does **not** vendor dependencies (platform-go's dependency tree is large); builds and
+This repository does **not** vendor dependencies (primitives-go's dependency tree is large); builds and
 tests run against the module cache. Vendoring targets (`make vendor` / `make revendor`) exist for
 consumers who want them.
 
@@ -95,7 +97,7 @@ Import ordering uses `gci` with four sections, separated by blank lines:
 
 1. Standard library
 2. `github.com/primandproper/tarpaulin` (this module)
-3. `github.com/primandproper` (org-level packages, including platform-go)
+3. `github.com/primandproper` (org-level packages, including primitives-go)
 4. Everything else (third-party)
 
 The Makefile `THIS` variable must be the full module path (`github.com/primandproper/tarpaulin`)
@@ -190,20 +192,20 @@ profile and `internal/coverage/coverage.go` from git. Two negations now keep the
 future file named that way needs the same** — check `git status --ignored` if a new file mysteriously
 never shows up.
 
-## Reach for platform-go first
+## Reach for primitives-go first
 
-This repo is built on platform-go, and its packages are the default answer before the standard
+This repo is built on primitives-go, and its packages are the default answer before the standard
 library or a new dependency. Two apply throughout:
 
-- **`platform-go/v10/encoding`** turns values into bytes. Prefer it to calling `json.Marshal`
+- **`primitives-go/v2/encoding`** turns values into bytes. Prefer it to calling `json.Marshal`
   directly, so the content type stays one decision made in one place — `encoding.EncodeJSON` /
   `encoding.DecodeJSON` for a fixed wire format, `Encode`/`Decode` with a `ContentType` when it is
   configurable. It returns exactly what `json.Marshal` returns, with no trailing newline.
-- **`platform-go/v10/errors`** constructs and wraps: `platformerrors.New`, `Wrap`, `Wrapf`, `Join`,
+- **`primitives-go/v2/errors`** constructs and wraps: `platformerrors.New`, `Wrap`, `Wrapf`, `Join`,
   and the platform sentinels (`ErrUnrecognizedInputValue` is the right one for a rejected enum or
-  flag value — wrap it with the offending input). Import it as `platformerrors`; `errors.Is`,
-  `errors.As`, and `errors.Unwrap` stay standard library and work on these values. Do not reach for
-  `fmt.Errorf("...: %w", err)`.
+  flag value — wrap it with the offending input). Import it as `platformerrors`, the alias
+  platform-go uses for the same package; `errors.Is`, `errors.As`, and `errors.Unwrap` stay standard
+  library and work on these values. Do not reach for `fmt.Errorf("...: %w", err)`.
 
 There are exactly two deliberate exceptions in the tree, both commented at the call site:
 `internal/config/render.go` uses `json.MarshalIndent` because the rendered config files are
@@ -211,7 +213,7 @@ committed to be read and `encoding` deliberately does not alter its marshaler's 
 indentation to offer); and `report_test.go` / `analysis_test.go` use `encoding/json` because what
 they pin is that a `Report` satisfies `json.Marshaler` for any ordinary consumer.
 
-Before adding a helper, check whether platform-go already has the package — `pointer`, `numbers`,
+Before adding a helper, check whether primitives-go already has the package — `pointer`, `numbers`,
 `files`, `random`, `identifiers`, `retry`, `panicking`, `reflection`, and `testutils` all exist, and
 the list at the module root is worth a look.
 
@@ -266,7 +268,7 @@ the list at the module root is worth a look.
   what distinguishes a typed flag from one sitting at its default; without it every default would
   outrank the file and the file would do nothing. `resolveSettings` (and `resolveGates` for the
   analyze-only settings) is the one place this happens.
-- Env vars follow platform-go's nested `envPrefix` tags, e.g. `TARP_OBSERVABILITY_LOGGING_LEVEL`
+- Env vars follow primitives-go's nested `envPrefix` tags, e.g. `TARP_OBSERVABILITY_LOGGING_LEVEL`
   and `TARP_ANALYZE_MIN_SCORE`. Give new `Config` fields `envPrefix`/`env` **and all three of
   `json`, `toml`, and `yaml`** so they participate in every loader equally: a `json` tag alone works
   for JSON and, case-insensitively, for TOML, but yaml.v3 falls back to the lower-cased field name,
@@ -290,7 +292,7 @@ Ignored, therefore: the cobra constructors (`newRootCommand`, `newAnalyzeCommand
 (`registerTargetFlags`, `registerAnalyzeFlags`), which declare flags and help text and are driven
 end to end through cobra by the command tests; `cmd/main.run` and the config builders in
 `cmd/tools/codegen/configs`, which sit in `cmd` packages `make test` excludes by design; and
-`envVarOptions`, which returns opaque platform-go options whose effect `Load` and `LoadFromFile`
+`envVarOptions`, which returns opaque primitives-go options whose effect `Load` and `LoadFromFile`
 already assert.
 
 Tested, therefore: `Execute`, `bootstrap`, `shutdown`, `(*application).log`, and
@@ -307,7 +309,7 @@ is hard to test" is not one.
 - Formatters: `gci` and `gofmt` (configured in the `formatters:` section).
 - Notable strictness: `errcheck` (with `check-blank` + `check-type-assertions`), `errorlint`,
   `gosec`, `forcetypeassert`, `unconvert`, `unparam`. Many are relaxed for `_test.go` files.
-- `depguard` carries platform-go's ban list verbatim (testify, `pkg/errors`, `io/ioutil`,
+- `depguard` carries the ban list platform-go and primitives-go share, verbatim (testify, `pkg/errors`, `io/ioutil`,
   `math/rand` v1, `dgrijalva/jwt-go`). Use `shoenig/test` + `shoenig/test/must` for assertions and
   `matryer/moq` for mocks; do not reintroduce testify.
 - **`make lint` copies the tree into the container rather than bind-mounting it.** Linting a

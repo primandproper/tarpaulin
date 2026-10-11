@@ -8,7 +8,7 @@ import (
 	"github.com/primandproper/tarpaulin/internal/analysis"
 	"github.com/primandproper/tarpaulin/internal/sarif"
 
-	"github.com/primandproper/platform-go/v10/encoding"
+	"github.com/primandproper/primitives-go/v2/encoding"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

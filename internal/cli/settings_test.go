@@ -6,7 +6,7 @@ import (
 	"github.com/primandproper/tarpaulin/internal/analysis"
 	"github.com/primandproper/tarpaulin/internal/config"
 
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -51,15 +51,15 @@ func resolve(t *testing.T, app *application, args ...string) (settings, config.A
 // test asserting one of its values cannot pass by accident.
 func projectConfig() (config.AnalyzeConfig, config.ExcludeConfig) {
 	return config.AnalyzeConfig{
-			Package:     fixture("simple"),
-			Strictness:  analysis.StrictnessAny.String(),
-			Format:      formatJSON.String(),
-			MinScore:    70,
-			FailOnFound: true,
-		}, config.ExcludeConfig{
-			Paths:     []string{"internal/generated/**"},
-			Functions: []string{"*.MarshalJSON"},
-		}
+		Package:     fixture("simple"),
+		Strictness:  analysis.StrictnessAny.String(),
+		Format:      formatJSON.String(),
+		MinScore:    70,
+		FailOnFound: true,
+	}, config.ExcludeConfig{
+		Paths:     []string{"internal/generated/**"},
+		Functions: []string{"*.MarshalJSON"},
+	}
 }
 
 func TestResolveSettings(t *testing.T) {

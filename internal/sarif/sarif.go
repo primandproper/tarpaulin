@@ -21,8 +21,8 @@ import (
 
 	"github.com/primandproper/tarpaulin/internal/analysis"
 
-	"github.com/primandproper/platform-go/v10/encoding"
-	platformerrors "github.com/primandproper/platform-go/v10/errors"
+	"github.com/primandproper/primitives-go/v2/encoding"
+	platformerrors "github.com/primandproper/primitives-go/v2/errors"
 )
 
 // The invariants of the emitted document.
